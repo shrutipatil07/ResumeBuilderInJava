@@ -1,0 +1,7 @@
+com\resumegenerator\export\PDFGenerator.class
+com\resumegenerator\resume\ExperiencedResume.class
+com\resumegenerator\model\User.class
+com\resumegenerator\resume\FresherResume.class
+com\resumegenerator\ui\ResumeBuilder.class
+com\resumegenerator\resume\Resume.class
+com\resumegenerator\ResumeApp.class
