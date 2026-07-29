@@ -1,0 +1,12 @@
+# ============================================================
+# Resume Builder — Database Configuration (EXAMPLE)
+# ============================================================
+# Copy this file to config.properties and fill in your values:
+#   cp config.properties.example config.properties
+# ============================================================
+
+db.driver=com.mysql.cj.jdbc.Driver
+db.url=jdbc:mysql://localhost:3306/resume_builder
+db.username=root
+db.password=your_password_here
+db.pool.size=5
