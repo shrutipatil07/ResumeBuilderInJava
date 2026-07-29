@@ -7,5 +7,6 @@ public class ResumeApp {
         new ResumeBuilder();
         // Properties config = ConfigLoader.load();
         // System.out.println(config.getProperty("db.url"));
+        System.out.println(com.resumegenerator.config.ConfigLoader.getUrl());
     }
 }
