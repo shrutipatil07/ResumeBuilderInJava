@@ -63,6 +63,21 @@
         -->
         <sourceDirectory>src</sourceDirectory>
 
+        <!--
+            Resource directory override.
+            Maven defaults to src/main/resources, but config.properties
+            lives in src/. We include only *.properties files so that
+            .java files aren't copied twice.
+        -->
+        <resources>
+            <resource>
+                <directory>src</directory>
+                <includes>
+                    <include>**/*.properties</include>
+                </includes>
+            </resource>
+        </resources>
+
         <plugins>
 
             <!--
@@ -98,13 +113,13 @@
             </plugin>
 
             <plugin>
-    <groupId>org.codehaus.mojo</groupId>
-    <artifactId>exec-maven-plugin</artifactId>
-    <version>3.3.0</version>
-    <configuration>
-        <mainClass>com.resumegenerator.ResumeApp</mainClass>
-    </configuration>
-</plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <mainClass>com.resumegenerator.ResumeApp</mainClass>
+                </configuration>
+            </plugin>
 
         </plugins>
     </build>
