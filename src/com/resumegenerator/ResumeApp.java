@@ -1,14 +1,19 @@
 package com.resumegenerator;
 
-import com.resumegenerator.ui.ResumeBuilder;
-import com.resumegenerator.model.LoginUser;
+import com.resumegenerator.ui.RegisterFrame;
+
+import javax.swing.JOptionPane;
 
 public class ResumeApp {
+
     public static void main(String[] args) {
-        //new ResumeBuilder();
-        // Properties config = ConfigLoader.load();
-        // System.out.println(config.getProperty("db.url"));
-        //System.out.println(com.resumegenerator.config.ConfigLoader.getUrl());
-        LoginUser user =new LoginUser(1,"Shruti","shruti@email.com","1234");
+
+        System.out.println("1. Main Started");
+        JOptionPane.showMessageDialog(null, "Main Started");
+
+        RegisterFrame frame = new RegisterFrame();
+
+        System.out.println("2. RegisterFrame Created");
+        JOptionPane.showMessageDialog(null, "RegisterFrame Created");
     }
 }
