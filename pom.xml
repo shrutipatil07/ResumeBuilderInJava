@@ -51,6 +51,22 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!--
+            jBCrypt — password hashing library.
+            Used by AuthenticationService to hash passwords before
+            storing them in the login_users table. BCrypt is a slow,
+            salted hashing algorithm designed specifically for passwords:
+              • Automatically generates a random salt per hash
+              • Intentionally slow to resist brute-force attacks
+              • Produces a 60-character string like:
+                $2a$10$N9qo8uLOickgx2ZMRZoMye...
+        -->
+        <dependency>
+            <groupId>org.mindrot</groupId>
+            <artifactId>jbcrypt</artifactId>
+            <version>0.4</version>
+        </dependency>
+
     </dependencies>
 
     <!-- ========== Build Configuration ========== -->

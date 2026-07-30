@@ -185,6 +185,27 @@ CREATE TABLE generated_resumes (
 ) ENGINE=InnoDB;
 
 -- ============================================================
+-- 10. login_users
+-- ============================================================
+-- WHY: A dedicated table for user authentication, separate
+--      from the `users` table which stores resume profile data.
+--      This follows Single Responsibility:
+--        • login_users → WHO can access the app (credentials)
+--        • users       → WHAT data they entered (resume content)
+--
+--      Passwords are stored as BCrypt hashes — NEVER plain text.
+--      If the database is breached, attackers get hashes that
+--      cannot be reversed into usable passwords.
+-- ============================================================
+CREATE TABLE login_users (
+    id              INT             AUTO_INCREMENT PRIMARY KEY,
+    username        VARCHAR(50)     NOT NULL UNIQUE,
+    email           VARCHAR(150)    NOT NULL UNIQUE,
+    password_hash   VARCHAR(255)    NOT NULL,
+    created_at      TIMESTAMP       DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- ============================================================
 -- Indexes for common query patterns
 -- ============================================================
 CREATE INDEX idx_resumes_user     ON resumes(user_id);
