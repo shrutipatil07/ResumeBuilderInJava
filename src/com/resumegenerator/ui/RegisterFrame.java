@@ -343,13 +343,25 @@ public class RegisterFrame extends JFrame {
             // ex.printStackTrace() prints the full trace to console
             // for debugging.
             // -------------------------------------------------------
-            JOptionPane.showMessageDialog(
-                this,
-                "Registration failed: " + ex.getMessage(),
+            // JOptionPane.showMessageDialog(
+            //     this,
+            //     "Registration failed: " + ex.getMessage(),
+            //     "Database Error",
+            //     JOptionPane.ERROR_MESSAGE
+            // );
+            // ex.printStackTrace();
+
+            if (ex.getErrorCode() == 1062) {   // MySQL Duplicate Entry
+                JOptionPane.showMessageDialog(null,
+                    "User already exists. Please login.",
+                    "Registration Failed",
+                    JOptionPane.ERROR_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(null,
+                "Database Error: " + ex.getMessage(),
                 "Database Error",
-                JOptionPane.ERROR_MESSAGE
-            );
-            ex.printStackTrace();
+                JOptionPane.ERROR_MESSAGE);
+    }
         }
     }
 
