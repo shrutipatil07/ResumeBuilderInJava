@@ -48,6 +48,13 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 
 // ---------------------------------------------------------------
+// Calendar — used to get the current year as a default value for
+// the education table's start_year column, since the UI collects
+// education as a single text field without a separate year input.
+// ---------------------------------------------------------------
+import java.util.Calendar;
+
+// ---------------------------------------------------------------
 // Our own classes
 // ---------------------------------------------------------------
 import com.resumegenerator.model.User;
@@ -71,7 +78,7 @@ import com.resumegenerator.db.DatabaseManager;
 public class UserDAO {
 
     // ===============================================================
-    // SQL TEMPLATE
+    // SQL TEMPLATE — INSERT into users
     // ===============================================================
     // This is the INSERT statement with three ? placeholders.
     //
@@ -93,6 +100,188 @@ public class UserDAO {
     // ===============================================================
     private static final String INSERT_USER_SQL =
         "INSERT INTO users (full_name, email, phone) VALUES (?, ?, ?)";
+
+    // ===============================================================
+    // SQL TEMPLATE — INSERT into resumes
+    // ===============================================================
+    //
+    // Column mapping:
+    //   ?1 → user_id      (auto-generated from the users INSERT)
+    //   ?2 → title         (derived from user's name, e.g.
+    //                       "John Doe's Resume")
+    //   ?3 → resume_type   (ENUM: 'FRESHER' or 'EXPERIENCED',
+    //                       determined by user.getExperienceYears())
+    //   ?4 → objective     (career objective from the form)
+    //
+    // Columns NOT listed here:
+    //   resume_id  → AUTO_INCREMENT, MySQL generates it
+    //   created_at → DEFAULT CURRENT_TIMESTAMP
+    //   updated_at → DEFAULT CURRENT_TIMESTAMP ON UPDATE
+    //
+    // WHY THIS TABLE?
+    //   The users table stores WHO the person is (identity/contact).
+    //   The resumes table stores WHAT resume they are building
+    //   (title, type, objective). One user can have many resumes.
+    //
+    // ===============================================================
+    // HOW THE GENERATED resume_id WILL BE USED LATER
+    // ===============================================================
+    //
+    // The resume_id is the CENTRAL FOREIGN KEY for all resume
+    // content tables. When we implement saving to the child tables,
+    // every INSERT will reference this resume_id:
+    //
+    //   education table:
+    //     INSERT INTO education (resume_id, institution, degree, ...)
+    //     → links each degree to THIS specific resume
+    //
+    //   skills table + resume_skills junction table:
+    //     INSERT INTO skills (skill_name) → get skill_id
+    //     INSERT INTO resume_skills (resume_id, skill_id, ...)
+    //     → many-to-many: one resume can have many skills,
+    //       one skill can appear on many resumes
+    //
+    //   experience table:
+    //     INSERT INTO experience (resume_id, company_name, ...)
+    //     → links each job position to THIS resume
+    //
+    //   projects table:
+    //     INSERT INTO projects (resume_id, project_name, ...)
+    //     → links each project to THIS resume
+    //
+    //   certifications table:
+    //     INSERT INTO certifications (resume_id, certification_name, ...)
+    //     → links each certification to THIS resume
+    //
+    //   generated_resumes table:
+    //     INSERT INTO generated_resumes (resume_id, file_path, ...)
+    //     → logs each PDF generation event for THIS resume
+    //
+    // Without resume_id, none of these child tables can be populated.
+    // That is why we generate and capture it NOW, even though we
+    // are not yet saving to those tables.
+    //
+    // FLOW (current):
+    //   users INSERT → user_id → resumes INSERT → resume_id (printed)
+    //
+    // FLOW (future, all in one transaction):
+    //   users INSERT     → user_id
+    //   resumes INSERT   → resume_id
+    //   education INSERT(s)     ← resume_id
+    //   skills / resume_skills  ← resume_id
+    //   experience INSERT(s)    ← resume_id
+    //   projects INSERT(s)      ← resume_id
+    //   certifications INSERT(s)← resume_id
+    //   COMMIT
+    // ===============================================================
+    private static final String INSERT_RESUME_SQL =
+        "INSERT INTO resumes (user_id, title, resume_type, objective) VALUES (?, ?, ?, ?)";
+
+    // ===============================================================
+    // SQL TEMPLATE — INSERT into education
+    // ===============================================================
+    //
+    // Column mapping:
+    //   ?1 → resume_id    (from the resumes INSERT above)
+    //   ?2 → institution  (default: "Not specified" — UI has no
+    //                      separate field for this)
+    //   ?3 → degree       (the flat education string from the UI)
+    //   ?4 → start_year   (default: current year — UI has no
+    //                      separate year field)
+    //
+    // WHY THESE DEFAULTS?
+    //   The education table has NOT NULL constraints on institution,
+    //   degree, and start_year. The UI currently collects education
+    //   as a single text field. Rather than rejecting the data or
+    //   changing the UI, we store the text in the most meaningful
+    //   column (degree) and use safe defaults for the rest.
+    //   When the UI is redesigned with structured fields, these
+    //   defaults will be replaced with real user input.
+    // ===============================================================
+    private static final String INSERT_EDUCATION_SQL =
+        "INSERT INTO education (resume_id, institution, degree, start_year) VALUES (?, ?, ?, ?)";
+
+    // ===============================================================
+    // SQL TEMPLATES — INSERT into skills + resume_skills
+    // ===============================================================
+    //
+    // Skills use a MANY-TO-MANY relationship:
+    //   skills table       → master list of unique skill names
+    //   resume_skills table → junction table linking resumes to skills
+    //
+    // STEP 1: INSERT IGNORE INTO skills
+    //   INSERT IGNORE means: if "Java" already exists (UNIQUE
+    //   constraint on skill_name), silently skip the INSERT instead
+    //   of throwing a duplicate-key error. This is safe because we
+    //   only need the skill to EXIST — we don't care if we or
+    //   another user created it.
+    //
+    // STEP 2: SELECT skill_id
+    //   After the INSERT (or skip), we SELECT the skill_id by name.
+    //   We need this ID for the junction table INSERT.
+    //
+    // STEP 3: INSERT INTO resume_skills
+    //   Links THIS resume to THIS skill via their IDs.
+    //   display_order preserves the order the user typed them in.
+    // ===============================================================
+    private static final String INSERT_SKILL_SQL =
+        "INSERT IGNORE INTO skills (skill_name) VALUES (?)";
+
+    private static final String SELECT_SKILL_ID_SQL =
+        "SELECT skill_id FROM skills WHERE skill_name = ?";
+
+    private static final String INSERT_RESUME_SKILL_SQL =
+        "INSERT INTO resume_skills (resume_id, skill_id, display_order) VALUES (?, ?, ?)";
+
+    // ===============================================================
+    // SQL TEMPLATE — INSERT into experience
+    // ===============================================================
+    //
+    // Column mapping:
+    //   ?1 → resume_id     (from the resumes INSERT)
+    //   ?2 → company_name  (default: "Not specified")
+    //   ?3 → job_title     (default: "Not specified")
+    //   ?4 → start_date    (default: today's date)
+    //   ?5 → description   (the flat experience string from the UI)
+    //
+    // Same rationale as education — the UI collects a single text
+    // field, but the schema requires structured NOT NULL columns.
+    // ===============================================================
+    private static final String INSERT_EXPERIENCE_SQL =
+        "INSERT INTO experience (resume_id, company_name, job_title, start_date, description) "
+        + "VALUES (?, ?, ?, ?, ?)";
+
+    // ===============================================================
+    // SQL TEMPLATE — INSERT into projects
+    // ===============================================================
+    //
+    // Column mapping:
+    //   ?1 → resume_id     (from the resumes INSERT)
+    //   ?2 → project_name  (the flat projects string from the UI)
+    //
+    // The projects table only requires resume_id and project_name
+    // as NOT NULL — all other columns (description, tech_stack,
+    // project_url) are nullable. So we only need the user's text.
+    // ===============================================================
+    private static final String INSERT_PROJECT_SQL =
+        "INSERT INTO projects (resume_id, project_name) VALUES (?, ?)";
+
+    // ===============================================================
+    // SQL TEMPLATE — INSERT into certifications
+    // ===============================================================
+    //
+    // Column mapping:
+    //   ?1 → resume_id          (from the resumes INSERT)
+    //   ?2 → certification_name (the flat certifications string
+    //                            from the UI)
+    //
+    // Same as projects — only resume_id and certification_name are
+    // NOT NULL. The other columns (issuing_org, issue_date,
+    // credential_url) are nullable.
+    // ===============================================================
+    private static final String INSERT_CERTIFICATION_SQL =
+        "INSERT INTO certifications (resume_id, certification_name) VALUES (?, ?)";
+
 
     // ===============================================================
     // SQL TEMPLATE — SELECT by primary key
@@ -132,189 +321,485 @@ public class UserDAO {
         "SELECT * FROM users ORDER BY created_at DESC";
 
     // ===============================================================
-    //  save(User user) — inserts a new user into the database
+    //  save(User user) — inserts a user AND their resume in one
+    //                     atomic transaction
     // ===============================================================
     /**
-     * Saves a User to the 'users' table and returns the
-     * auto-generated user_id.
+     * Saves a User to the 'users' table AND creates a corresponding
+     * row in the 'resumes' table, all within a single database
+     * transaction.
+     *
+     * <p><b>Transaction guarantee:</b> Either BOTH rows are inserted
+     * (users + resumes), or NEITHER is. If the resumes INSERT fails
+     * after the users INSERT succeeded, the transaction is rolled
+     * back and the users row is undone.</p>
+     *
+     * <p>The generated resume_id is printed to the console. It will
+     * be used as the foreign key for education, skills, experience,
+     * projects, and certifications when those DAOs are implemented.</p>
      *
      * @param user the User object to persist
      * @return the generated user_id (primary key), or -1 if the insert failed
-     * @throws SQLException if a database error occurs
+     * @throws SQLException if a database error occurs (triggers rollback)
      */
     public int save(User user) throws SQLException {
 
         // -----------------------------------------------------------
-        // STEP 1: Open a connection
-        // -----------------------------------------------------------
-        // DatabaseManager.getConnection() returns a fresh Connection
-        // to the resume_builder database using the credentials from
-        // config.properties.
+        // Declare all JDBC resources outside the try block so we
+        // can close them in the finally block regardless of outcome.
         //
-        // We declare conn, pstmt, and rs outside the try block so
-        // we can close them in the finally block regardless of
-        // whether the try succeeds or throws.
+        // We need PreparedStatements for each INSERT (users, resumes,
+        // education, skills, resume_skills, experience, projects,
+        // certifications) and ResultSets for generated keys.
         // -----------------------------------------------------------
         Connection conn = null;
-        PreparedStatement pstmt = null;
-        ResultSet rs = null;
+        PreparedStatement userStmt = null;
+        PreparedStatement resumeStmt = null;
+        PreparedStatement educationStmt = null;
+        PreparedStatement skillStmt = null;
+        PreparedStatement selectSkillStmt = null;
+        PreparedStatement resumeSkillStmt = null;
+        PreparedStatement experienceStmt = null;
+        PreparedStatement projectStmt = null;
+        PreparedStatement certificationStmt = null;
+        ResultSet userKeys = null;
+        ResultSet resumeKeys = null;
+        ResultSet skillIdRs = null;
 
         try {
             conn = DatabaseManager.getConnection();
 
             // -------------------------------------------------------
-            // STEP 2: Create a PreparedStatement
+            // TRANSACTION STEP 1: Disable auto-commit
             // -------------------------------------------------------
             //
-            // conn.prepareStatement(sql, flag) does two things:
+            // By default, JDBC runs in AUTO-COMMIT mode: every
+            // single SQL statement is immediately committed to the
+            // database. This means if we INSERT into users and then
+            // the INSERT into resumes fails, the users row is already
+            // permanent — we can't undo it.
             //
-            //   a) Sends the SQL template to MySQL for PARSING and
-            //      COMPILATION. MySQL creates an execution plan
-            //      (which tables to scan, which indexes to use)
-            //      but does NOT execute it yet. The ? placeholders
-            //      are just slots waiting to be filled.
+            // conn.setAutoCommit(false) switches to MANUAL COMMIT:
+            //   • No statement is committed until we explicitly call
+            //     conn.commit()
+            //   • If anything fails, we call conn.rollback() to undo
+            //     ALL statements since setAutoCommit(false)
             //
-            //   b) Statement.RETURN_GENERATED_KEYS tells the JDBC
-            //      driver: "After the INSERT, I want to read back
-            //      the auto-generated user_id." Without this flag,
-            //      getGeneratedKeys() would return an empty ResultSet.
+            // This gives us ATOMICITY: both INSERTs succeed together
+            // or fail together. The database is never left in a
+            // half-saved state.
             //
-            // WHY prepareStatement() INSTEAD OF createStatement()?
-            //   - SQL injection protection: values are bound
-            //     separately, never concatenated into the SQL string
-            //   - Performance: if you call save() 100 times, MySQL
-            //     reuses the same execution plan instead of parsing
-            //     the SQL 100 times
-            //   - Type safety: setString() ensures proper escaping
-            //     of quotes, backslashes, and Unicode characters
+            // WHAT WOULD GO WRONG WITHOUT A TRANSACTION?
+            //   1. INSERT INTO users → succeeds → user_id = 42
+            //   2. INSERT INTO resumes → fails (e.g., bad ENUM value)
+            //   Result: user_id 42 exists but has no resume.
+            //   The foreign key relationship is broken — orphan row.
+            //   With a transaction, step 1 is rolled back too.
             // -------------------------------------------------------
-            pstmt = conn.prepareStatement(
+            conn.setAutoCommit(false);
+
+            // -------------------------------------------------------
+            // TRANSACTION STEP 2: INSERT into users
+            // -------------------------------------------------------
+            userStmt = conn.prepareStatement(
                 INSERT_USER_SQL,
                 Statement.RETURN_GENERATED_KEYS
             );
 
-            // -------------------------------------------------------
-            // STEP 3: Bind values to the ? placeholders
-            // -------------------------------------------------------
-            //
-            // pstmt.setString(parameterIndex, value)
-            //
-            //   parameterIndex — the position of the ? in the SQL,
-            //     starting from 1 (not 0). This is a JDBC convention.
-            //
-            //   value — the Java String to bind. PreparedStatement
-            //     will automatically:
-            //       • Wrap it in single quotes
-            //       • Escape special characters (e.g., O'Brien → O\'Brien)
-            //       • Handle NULL values if you pass null
-            //
-            // Our SQL:  INSERT INTO users (full_name, email, phone)
-            //                      VALUES (?1,        ?2,    ?3)
-            // -------------------------------------------------------
+            userStmt.setString(1, user.getName());   // ?1 → full_name
+            userStmt.setString(2, user.getEmail());   // ?2 → email
+            userStmt.setString(3, user.getPhone());   // ?3 → phone
 
-            // ?1 → full_name column ← user.getName()
-            pstmt.setString(1, user.getName());
-
-            // ?2 → email column ← user.getEmail()
-            pstmt.setString(2, user.getEmail());
-
-            // ?3 → phone column ← user.getPhone()
-            pstmt.setString(3, user.getPhone());
+            int userRowsAffected = userStmt.executeUpdate();
 
             // -------------------------------------------------------
-            // STEP 4: Execute the INSERT
+            // Retrieve the auto-generated user_id.
+            // We need it immediately for the resumes INSERT (as the
+            // foreign key) and to return to the caller.
             // -------------------------------------------------------
-            //
-            // pstmt.executeUpdate()
-            //
-            //   Sends the compiled SQL + bound values to MySQL.
-            //   MySQL inserts the row and returns an int:
-            //     • The number of rows affected (1 for a successful
-            //       single-row INSERT, 0 if nothing was inserted).
-            //
-            //   WHY executeUpdate() AND NOT executeQuery()?
-            //     • executeQuery()  → for SELECT (returns a ResultSet)
-            //     • executeUpdate() → for INSERT, UPDATE, DELETE
-            //       (returns an int — the affected row count)
-            //
-            //   We store the result in 'rowsAffected' to verify
-            //   that exactly 1 row was inserted.
-            // -------------------------------------------------------
-            int rowsAffected = pstmt.executeUpdate();
-
-            // -------------------------------------------------------
-            // STEP 5: Retrieve the auto-generated user_id
-            // -------------------------------------------------------
-            //
-            // pstmt.getGeneratedKeys()
-            //
-            //   Returns a ResultSet containing the auto-increment
-            //   value(s) generated by the INSERT. For a single-row
-            //   INSERT, this ResultSet has exactly one row with one
-            //   column: the generated user_id.
-            //
-            //   This only works because we passed
-            //   Statement.RETURN_GENERATED_KEYS in Step 2.
-            //
-            // rs.next()
-            //
-            //   Moves the cursor to the first (and only) row.
-            //   Returns true if a row exists, false if empty.
-            //
-            // rs.getInt(1)
-            //
-            //   Reads the first column of the current row as an int.
-            //   Column index is 1-based (JDBC convention).
-            //   This is the user_id that MySQL auto-generated.
-            //
-            // WHY DO WE NEED THE GENERATED ID?
-            //   When we later insert into the 'resumes' table, we
-            //   need user_id as the foreign key. Without retrieving
-            //   it here, we'd have to run a separate SELECT query
-            //   to find it — wasteful and race-condition-prone.
-            // -------------------------------------------------------
-            if (rowsAffected > 0) {
-                rs = pstmt.getGeneratedKeys();
-                if (rs.next()) {
-                    return rs.getInt(1);
+            int generatedUserId = -1;
+            if (userRowsAffected > 0) {
+                userKeys = userStmt.getGeneratedKeys();
+                if (userKeys.next()) {
+                    generatedUserId = userKeys.getInt(1);
                 }
             }
 
-            // If no rows were affected (shouldn't happen for a valid
-            // INSERT), return -1 to signal failure to the caller.
-            return -1;
+            if (generatedUserId == -1) {
+                // User INSERT didn't produce a key — something is
+                // very wrong. Roll back and signal failure.
+                conn.rollback();
+                return -1;
+            }
+
+            // -------------------------------------------------------
+            // TRANSACTION STEP 3: INSERT into resumes
+            // -------------------------------------------------------
+            //
+            // Now we use the user_id we just obtained as the foreign
+            // key in the resumes table. This is exactly WHY we
+            // retrieved the generated key in Step 2.
+            //
+            // Column mapping:
+            //   ?1 → user_id       ← generatedUserId
+            //   ?2 → title         ← derived from user's name
+            //   ?3 → resume_type   ← 'EXPERIENCED' or 'FRESHER'
+            //   ?4 → objective     ← user.getObjective()
+            // -------------------------------------------------------
+            resumeStmt = conn.prepareStatement(
+                INSERT_RESUME_SQL,
+                Statement.RETURN_GENERATED_KEYS
+            );
+
+            resumeStmt.setInt(1, generatedUserId);
+
+            // -------------------------------------------------------
+            // Title: We derive a default title from the user's name.
+            // Example: "John Doe's Resume"
+            //
+            // In the future, the UI could have a dedicated title
+            // field, but for now we auto-generate it since the
+            // schema requires a non-null title.
+            // -------------------------------------------------------
+            resumeStmt.setString(2, user.getName() + "'s Resume");
+
+            // -------------------------------------------------------
+            // Resume type: The User model stores experienceYears.
+            //   • experienceYears > 0  → 'EXPERIENCED'
+            //   • experienceYears == 0 → 'FRESHER'
+            //
+            // This maps directly to the ENUM('FRESHER','EXPERIENCED')
+            // column in the resumes table.
+            // -------------------------------------------------------
+            String resumeType = user.getExperienceYears() > 0
+                ? "EXPERIENCED" : "FRESHER";
+            resumeStmt.setString(3, resumeType);
+
+            // -------------------------------------------------------
+            // Objective: The career objective / summary statement.
+            // This can be NULL in the schema, so an empty string
+            // from the form is acceptable.
+            // -------------------------------------------------------
+            String objective = user.getObjective();
+            if (objective != null && !objective.trim().isEmpty()) {
+                resumeStmt.setString(4, objective);
+            } else {
+                resumeStmt.setNull(4, java.sql.Types.VARCHAR);
+            }
+
+            resumeStmt.executeUpdate();
+
+            // -------------------------------------------------------
+            // Retrieve the auto-generated resume_id.
+            //
+            // We don't return this to the UI (to avoid UI changes),
+            // but we print it so you can verify the INSERT worked
+            // and see the ID that future child-table DAOs will use.
+            // -------------------------------------------------------
+            resumeKeys = resumeStmt.getGeneratedKeys();
+            int generatedResumeId = -1;
+            if (resumeKeys.next()) {
+                generatedResumeId = resumeKeys.getInt(1);
+                System.out.println(
+                    "[UserDAO] Resume saved — resume_id: " + generatedResumeId
+                    + " (linked to user_id: " + generatedUserId + ")"
+                );
+            }
+
+            if (generatedResumeId == -1) {
+                // Resume INSERT didn't produce a key — roll back
+                // the users INSERT too and signal failure.
+                conn.rollback();
+                return -1;
+            }
+
+            // -------------------------------------------------------
+            // TRANSACTION STEP 4: INSERT into education
+            // -------------------------------------------------------
+            //
+            // The UI stores education as a single String (e.g.,
+            // "B.Tech Computer Science"). We store it in the 'degree'
+            // column and use defaults for the required columns that
+            // the UI doesn't collect separately.
+            //
+            // SKIP-IF-EMPTY: If the user left the education field
+            // blank, we don't insert a placeholder row — we simply
+            // skip this step. This avoids rows with only defaults
+            // and no meaningful data.
+            // -------------------------------------------------------
+            String education = user.getEducation();
+            if (education != null && !education.trim().isEmpty()) {
+                educationStmt = conn.prepareStatement(INSERT_EDUCATION_SQL);
+                educationStmt.setInt(1, generatedResumeId);        // ?1 → resume_id
+                educationStmt.setString(2, "Not specified");        // ?2 → institution (default)
+                educationStmt.setString(3, education.trim());      // ?3 → degree
+                int currentYear = Calendar.getInstance().get(Calendar.YEAR);
+                educationStmt.setInt(4, currentYear);               // ?4 → start_year (default)
+                educationStmt.executeUpdate();
+                System.out.println(
+                    "[UserDAO] Education saved for resume_id: " + generatedResumeId
+                );
+            }
+
+            // -------------------------------------------------------
+            // TRANSACTION STEP 5: INSERT into skills + resume_skills
+            // -------------------------------------------------------
+            //
+            // The UI stores skills as an ArrayList<String>, e.g.,
+            // ["Java", "MySQL", "Spring Boot"]. For each skill:
+            //
+            //   1. INSERT IGNORE into the skills master table
+            //      → creates the skill if it doesn't exist yet
+            //      → silently skips if it already exists (no error)
+            //
+            //   2. SELECT skill_id by name
+            //      → retrieves the ID whether we just created it
+            //        or it already existed
+            //
+            //   3. INSERT into resume_skills junction table
+            //      → links this resume to this skill
+            //      → display_order preserves the user's ordering
+            //
+            // WHY NOT LAST_INSERT_ID()?
+            //   INSERT IGNORE does NOT set LAST_INSERT_ID() when the
+            //   row already exists (it was a no-op). So we always
+            //   SELECT by name to reliably get the skill_id.
+            //
+            // SKIP-IF-EMPTY: If the skills list is null or contains
+            // only blank entries, we skip entirely.
+            // -------------------------------------------------------
+            ArrayList<String> skills = user.getSkills();
+            if (skills != null && !skills.isEmpty()) {
+                skillStmt = conn.prepareStatement(INSERT_SKILL_SQL);
+                selectSkillStmt = conn.prepareStatement(SELECT_SKILL_ID_SQL);
+                resumeSkillStmt = conn.prepareStatement(INSERT_RESUME_SKILL_SQL);
+
+                int displayOrder = 0;
+                for (String skillName : skills) {
+                    // Skip blank skill entries (e.g., trailing comma:
+                    // "Java, MySQL, " → ["Java", "MySQL", ""])
+                    if (skillName == null || skillName.trim().isEmpty()) {
+                        continue;
+                    }
+                    String trimmedSkill = skillName.trim();
+
+                    // Step 5a: INSERT IGNORE — create skill if new
+                    skillStmt.setString(1, trimmedSkill);
+                    skillStmt.executeUpdate();
+
+                    // Step 5b: SELECT — get the skill_id
+                    selectSkillStmt.setString(1, trimmedSkill);
+                    skillIdRs = selectSkillStmt.executeQuery();
+                    if (skillIdRs.next()) {
+                        int skillId = skillIdRs.getInt(1);
+
+                        // Step 5c: INSERT into junction table
+                        resumeSkillStmt.setInt(1, generatedResumeId);
+                        resumeSkillStmt.setInt(2, skillId);
+                        resumeSkillStmt.setInt(3, displayOrder);
+                        resumeSkillStmt.executeUpdate();
+
+                        displayOrder++;
+                    }
+                    // Close the ResultSet before the next iteration
+                    // to avoid resource leaks
+                    skillIdRs.close();
+                    skillIdRs = null;
+                }
+                System.out.println(
+                    "[UserDAO] " + displayOrder + " skill(s) saved for resume_id: "
+                    + generatedResumeId
+                );
+            }
+
+            // -------------------------------------------------------
+            // TRANSACTION STEP 6: INSERT into experience
+            // -------------------------------------------------------
+            //
+            // Same pattern as education — the UI gives us a single
+            // String, but the schema expects structured columns.
+            // We store the text in the 'description' column and use
+            // defaults for the NOT NULL columns (company_name,
+            // job_title, start_date).
+            //
+            // SKIP-IF-EMPTY: Only inserts if the experience field
+            // is non-blank. For fresher resumes, this field is
+            // typically disabled in the UI, so it will be empty.
+            // -------------------------------------------------------
+            String experience = user.getExperienceDetails();
+            if (experience != null && !experience.trim().isEmpty()) {
+                experienceStmt = conn.prepareStatement(INSERT_EXPERIENCE_SQL);
+                experienceStmt.setInt(1, generatedResumeId);       // ?1 → resume_id
+                experienceStmt.setString(2, "Not specified");       // ?2 → company_name (default)
+                experienceStmt.setString(3, "Not specified");       // ?3 → job_title (default)
+                experienceStmt.setDate(4,                           // ?4 → start_date (default: today)
+                    new java.sql.Date(System.currentTimeMillis()));
+                experienceStmt.setString(5, experience.trim());    // ?5 → description
+                experienceStmt.executeUpdate();
+                System.out.println(
+                    "[UserDAO] Experience saved for resume_id: " + generatedResumeId
+                );
+            }
+
+            // -------------------------------------------------------
+            // TRANSACTION STEP 7: INSERT into projects
+            // -------------------------------------------------------
+            //
+            // The projects table only requires resume_id and
+            // project_name as NOT NULL. The user's text maps
+            // directly to project_name — no defaults needed.
+            //
+            // SKIP-IF-EMPTY: Only inserts if the projects field
+            // is non-blank.
+            // -------------------------------------------------------
+            String projects = user.getProjects();
+            if (projects != null && !projects.trim().isEmpty()) {
+                projectStmt = conn.prepareStatement(INSERT_PROJECT_SQL);
+                projectStmt.setInt(1, generatedResumeId);          // ?1 → resume_id
+                projectStmt.setString(2, projects.trim());         // ?2 → project_name
+                projectStmt.executeUpdate();
+                System.out.println(
+                    "[UserDAO] Project saved for resume_id: " + generatedResumeId
+                );
+            }
+
+            // -------------------------------------------------------
+            // TRANSACTION STEP 8: INSERT into certifications
+            // -------------------------------------------------------
+            //
+            // Same as projects — only resume_id and
+            // certification_name are NOT NULL.
+            //
+            // SKIP-IF-EMPTY: Only inserts if the certifications
+            // field is non-blank.
+            // -------------------------------------------------------
+            String certifications = user.getCertifications();
+            if (certifications != null && !certifications.trim().isEmpty()) {
+                certificationStmt = conn.prepareStatement(INSERT_CERTIFICATION_SQL);
+                certificationStmt.setInt(1, generatedResumeId);          // ?1 → resume_id
+                certificationStmt.setString(2, certifications.trim());   // ?2 → certification_name
+                certificationStmt.executeUpdate();
+                System.out.println(
+                    "[UserDAO] Certification saved for resume_id: " + generatedResumeId
+                );
+            }
+
+            // -------------------------------------------------------
+            // TRANSACTION STEP 9: COMMIT
+            // -------------------------------------------------------
+            //
+            // conn.commit() makes ALL INSERTs permanent — users,
+            // resumes, education, skills, experience, projects, and
+            // certifications. Until this call, the rows are visible
+            // only to THIS connection (ISOLATION in ACID).
+            //
+            // If ANY of the 8 steps above threw a SQLException, we
+            // never reach this line — the catch block rolls back
+            // everything. This guarantees ATOMICITY: all tables are
+            // populated together or none are.
+            //
+            // After commit(), the data is DURABLE — it survives
+            // server crashes, power failures, etc. (the D in ACID).
+            // -------------------------------------------------------
+            conn.commit();
+            System.out.println(
+                "[UserDAO] Transaction committed — all tables saved for "
+                + "user_id: " + generatedUserId + ", resume_id: " + generatedResumeId
+            );
+
+            return generatedUserId;
+
+        } catch (SQLException ex) {
+            // -------------------------------------------------------
+            // TRANSACTION ROLLBACK on failure
+            // -------------------------------------------------------
+            //
+            // If ANY SQL statement fails (users, resumes, education,
+            // skills, experience, projects, or certifications INSERT),
+            // we land here.
+            //
+            // conn.rollback() undoes ALL statements executed since
+            // setAutoCommit(false). This guarantees ATOMICITY:
+            //   • If the certifications INSERT failed, ALL previous
+            //     INSERTs (users, resumes, education, skills,
+            //     experience, projects) are undone too.
+            //   • The database is left in the exact state it was
+            //     in before save() was called.
+            //
+            // We then re-throw the exception so the UI layer can
+            // display the error message to the user.
+            // -------------------------------------------------------
+            System.err.println("[UserDAO] Transaction failed — rolling back all tables.");
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException rollbackEx) {
+                    // Rollback itself failed — log it but still
+                    // throw the original exception so the caller
+                    // knows the save failed.
+                    rollbackEx.printStackTrace();
+                }
+            }
+            throw ex;
 
         } finally {
             // -------------------------------------------------------
-            // STEP 6: Clean up resources (ALWAYS runs)
+            // Clean up ALL resources (ALWAYS runs)
             // -------------------------------------------------------
             //
-            // The finally block executes whether the try block
-            // succeeds or throws an exception. We close resources
-            // in REVERSE order of creation:
-            //   ResultSet → PreparedStatement → Connection
+            // Close in REVERSE order of creation:
+            //   ResultSets → PreparedStatements → Connection
             //
-            // WHY REVERSE ORDER?
-            //   A ResultSet depends on its PreparedStatement, which
-            //   depends on its Connection. Closing in reverse order
-            //   ensures each resource is released before its parent.
-            //
-            // WHY INDIVIDUAL TRY-CATCH FOR EACH?
-            //   If rs.close() throws, we still want to close pstmt
-            //   and conn. Without individual catches, a single
-            //   failure would skip the remaining close() calls
-            //   and leak resources.
+            // We also restore auto-commit to its default (true)
+            // before closing. This is good practice in case the
+            // connection is returned to a pool instead of closed —
+            // the next user of the connection would otherwise
+            // inherit our manual-commit mode unexpectedly.
             // -------------------------------------------------------
 
-            // Close ResultSet
-            if (rs != null) {
-                try { rs.close(); } catch (SQLException e) { e.printStackTrace(); }
+            // Close ResultSets
+            if (skillIdRs != null) {
+                try { skillIdRs.close(); } catch (SQLException e) { e.printStackTrace(); }
             }
-            // Close PreparedStatement
-            if (pstmt != null) {
-                try { pstmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            if (resumeKeys != null) {
+                try { resumeKeys.close(); } catch (SQLException e) { e.printStackTrace(); }
             }
-            // Close Connection (delegates to DatabaseManager's safe close)
+            if (userKeys != null) {
+                try { userKeys.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            // Close PreparedStatements (reverse order of creation)
+            if (certificationStmt != null) {
+                try { certificationStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            if (projectStmt != null) {
+                try { projectStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            if (experienceStmt != null) {
+                try { experienceStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            if (resumeSkillStmt != null) {
+                try { resumeSkillStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            if (selectSkillStmt != null) {
+                try { selectSkillStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            if (skillStmt != null) {
+                try { skillStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            if (educationStmt != null) {
+                try { educationStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            if (resumeStmt != null) {
+                try { resumeStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            if (userStmt != null) {
+                try { userStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            // Restore auto-commit before closing (pool safety)
+            if (conn != null) {
+                try { conn.setAutoCommit(true); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            // Close Connection
             DatabaseManager.closeConnection(conn);
         }
     }

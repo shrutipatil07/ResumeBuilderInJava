@@ -1,19 +1,29 @@
 package com.resumegenerator;
 
-import com.resumegenerator.ui.RegisterFrame;
+// ---------------------------------------------------------------
+// ResumeApp — the entry point of the Resume Builder application.
+//
+// APPLICATION FLOW:
+//   1. ResumeApp.main() launches LoginFrame
+//   2. LoginFrame → user logs in → Dashboard
+//   3. LoginFrame → user clicks Register → RegisterFrame
+//   4. RegisterFrame → user registers → back to LoginFrame
+//   5. Dashboard → Create Resume → ResumeBuilder
+//   6. Dashboard → Logout → LoginFrame
+// ---------------------------------------------------------------
 
-import javax.swing.JOptionPane;
+import com.resumegenerator.ui.LoginFrame;
 
 public class ResumeApp {
 
     public static void main(String[] args) {
-
-        System.out.println("1. Main Started");
-        JOptionPane.showMessageDialog(null, "Main Started");
-
-        RegisterFrame frame = new RegisterFrame();
-
-        System.out.println("2. RegisterFrame Created");
-        JOptionPane.showMessageDialog(null, "RegisterFrame Created");
+        // -----------------------------------------------------------
+        // Launch the LoginFrame as the FIRST screen.
+        //
+        // The entire navigation flow starts here:
+        //   LoginFrame → (login success) → Dashboard
+        //   LoginFrame → (click Register) → RegisterFrame
+        // -----------------------------------------------------------
+        new LoginFrame();
     }
 }

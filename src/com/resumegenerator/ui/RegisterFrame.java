@@ -222,30 +222,38 @@ public class RegisterFrame extends JFrame {
     // ===============================================================
     //
     // FLOW:
-    //   1. Read and trim all field values
-    //   2. Validate that no field is empty
-    //   3. Validate that passwords match
-    //   4. Call AuthenticationService.register(username, email, password)
-    //      → Service hashes the password with BCrypt
-    //      → Service calls LoginDAO.registerUser() to INSERT
-    //   5. Show success or error message
+    //   1. Read field values
+    //   2. Call AuthenticationService.register() which:
+    //      → Validates input (throws IllegalArgumentException if bad)
+    //      → Checks for duplicate username
+    //      → Hashes the password with BCrypt
+    //      → Calls LoginDAO.registerUser() to INSERT
+    //   3. Show success or error message
     //
-    // WHY TRY-CATCH HERE AND NOT IN THE SERVICE?
-    //   Same reason as ResumeBuilder's Save button — the service
-    //   throws the exception UP because it doesn't know how to
-    //   display errors (it has no UI). The UI catches it because
-    //   it CAN show a dialog to the user.
+    // WHY NO VALIDATION HERE?
+    //   All validation now lives in AuthenticationService.
+    //   This keeps the UI thin — it only reads fields and shows
+    //   dialogs. The same validation rules apply whether the
+    //   caller is a GUI, a CLI, or a unit test.
+    //
+    // EXCEPTION HANDLING:
+    //   • IllegalArgumentException → validation failed (empty field,
+    //     passwords don't match). The exception message is the exact
+    //     text to show the user.
+    //   • SQLException → database error (MySQL down, duplicate email,
+    //     table missing).
     // ===============================================================
     public void registerAction() {
         // -----------------------------------------------------------
         // STEP 1: Read values from the fields
         // -----------------------------------------------------------
         // .trim() removes leading/trailing whitespace so that
-        // "  Shruti  " becomes "Shruti". This prevents users from
-        // accidentally registering with invisible spaces.
+        // "  Shruti  " becomes "Shruti".
         //
         // new String(passwordField.getPassword()) converts the
-        // char[] from getPassword() into a String for comparison.
+        // char[] from getPassword() into a String.
+        //
+        // We do NOT validate here — that's the service's job.
         // -----------------------------------------------------------
         String username = usernameField.getText().trim();
         String email = emailField.getText().trim();
@@ -253,59 +261,22 @@ public class RegisterFrame extends JFrame {
         String confirmPassword = new String(confirmPasswordField.getPassword());
 
         // -----------------------------------------------------------
-        // STEP 2: Validation — check for empty fields
+        // STEP 2: Delegate to AuthenticationService
         // -----------------------------------------------------------
-        // isEmpty() returns true if the string has length 0.
-        // We check each field individually to give a specific
-        // error message — better UX than a generic "fill all fields".
-        // -----------------------------------------------------------
-        if (username.isEmpty()) {
-            showError("Username cannot be empty!");
-            return;
-        }
-        if (email.isEmpty()) {
-            showError("Email cannot be empty!");
-            return;
-        }
-        if (password.isEmpty()) {
-            showError("Password cannot be empty!");
-            return;
-        }
-
-        // -----------------------------------------------------------
-        // STEP 3: Validation — passwords must match
-        // -----------------------------------------------------------
-        // .equals() compares the CONTENT of two strings.
-        //   == would compare memory addresses (almost always false
-        //   for different String objects, even with the same text).
-        // -----------------------------------------------------------
-        if (!password.equals(confirmPassword)) {
-            showError("Passwords do not match!");
-            return;
-        }
-
-        // -----------------------------------------------------------
-        // STEP 4: Call AuthenticationService.register()
-        // -----------------------------------------------------------
-        // AuthenticationService handles:
-        //   a) Checking if the username already exists
-        //   b) Hashing the password with BCrypt
-        //   c) Creating a LoginUser object
-        //   d) Calling LoginDAO.registerUser() to INSERT
+        // AuthenticationService.register() handles EVERYTHING:
+        //   a) Validation (empty fields, password match)
+        //   b) Duplicate username check
+        //   c) BCrypt password hashing
+        //   d) LoginDAO.registerUser() INSERT
         //
-        // We pass the PLAIN TEXT password — the service will hash it.
-        // The plain text NEVER reaches the database.
-        //
-        // register() returns:
-        //   true  → user was successfully inserted
-        //   false → username already exists (duplicate)
-        //
-        // register() throws:
-        //   SQLException → database is down, table missing, etc.
+        // If validation fails → IllegalArgumentException
+        // If database fails   → SQLException
+        // If username taken   → returns false
+        // If success          → returns true
         // -----------------------------------------------------------
         try {
             AuthenticationService authService = new AuthenticationService();
-            boolean success = authService.register(username, email, password);
+            boolean success = authService.register(username, email, password, confirmPassword);
 
             if (success) {
                 // ---------------------------------------------------
@@ -328,6 +299,23 @@ public class RegisterFrame extends JFrame {
                 showError("Username already taken! Please choose another.");
             }
 
+        } catch (IllegalArgumentException ex) {
+            // -------------------------------------------------------
+            // Validation error — input was invalid
+            // -------------------------------------------------------
+            // AuthenticationService.validateRegistration() threw this
+            // because a field was empty or passwords didn't match.
+            //
+            // ex.getMessage() contains the EXACT error text:
+            //   "Username cannot be empty!"
+            //   "Email cannot be empty!"
+            //   "Password cannot be empty!"
+            //   "Passwords do not match!"
+            //
+            // We simply display it — no need to interpret the error.
+            // -------------------------------------------------------
+            showError(ex.getMessage());
+
         } catch (SQLException ex) {
             // -------------------------------------------------------
             // Database error — show the SQL error message
@@ -337,20 +325,7 @@ public class RegisterFrame extends JFrame {
             //   • config.properties has wrong credentials
             //   • login_users table doesn't exist
             //   • Duplicate email (UNIQUE constraint violation)
-            //
-            // ex.getMessage() gives a human-readable error from
-            // the MySQL driver.
-            // ex.printStackTrace() prints the full trace to console
-            // for debugging.
             // -------------------------------------------------------
-            // JOptionPane.showMessageDialog(
-            //     this,
-            //     "Registration failed: " + ex.getMessage(),
-            //     "Database Error",
-            //     JOptionPane.ERROR_MESSAGE
-            // );
-            // ex.printStackTrace();
-
             if (ex.getErrorCode() == 1062) {   // MySQL Duplicate Entry
                 JOptionPane.showMessageDialog(null,
                     "User already exists. Please login.",
@@ -358,10 +333,11 @@ public class RegisterFrame extends JFrame {
                     JOptionPane.ERROR_MESSAGE);
             } else {
                 JOptionPane.showMessageDialog(null,
-                "Database Error: " + ex.getMessage(),
-                "Database Error",
-                JOptionPane.ERROR_MESSAGE);
-    }
+                    "Database Error: " + ex.getMessage(),
+                    "Database Error",
+                    JOptionPane.ERROR_MESSAGE);
+            }
+            ex.printStackTrace();
         }
     }
 
@@ -379,7 +355,7 @@ public class RegisterFrame extends JFrame {
     // ===============================================================
     public void openLoginFrame() {
         dispose();
-        // new LoginFrame();  // Will be uncommented when LoginFrame is ready
+        new LoginFrame();
     }
 
     // ===============================================================

@@ -192,16 +192,169 @@ public class LoginDAO {
         }
     }
 
-    // ---------------------------------------------------------------
-    // loginUser — look up a user by username and password.
+    // ===============================================================
+    // SQL TEMPLATE — SELECT a login user by username
+    // ===============================================================
+    //
+    // WHY SELECT BY USERNAME ONLY (not username AND password)?
+    //   Because the password is stored as a BCrypt hash. We cannot
+    //   put the plain text password in the WHERE clause — MySQL
+    //   would compare "1234" against "$2a$10$N9qo8..." and never
+    //   find a match.
+    //
+    //   Instead, we:
+    //     1. SELECT the row by username (this method)
+    //     2. Let AuthenticationService compare the plain text
+    //        password against the stored hash using BCrypt.checkpw()
+    //
+    //   ?1 → username (the login name to search for)
+    // ===============================================================
+    private static final String SELECT_BY_USERNAME_SQL =
+        "SELECT id, username, email, password_hash FROM login_users WHERE username = ?";
+
+    // ===============================================================
+    //  authenticate(String username) — fetches a user by username
+    // ===============================================================
     //
     // @param username  the login name to search for
-    // @param password  the password to verify
-    // @return          the matching LoginUser, or null if not found
+    // @return          the matching LoginUser (with hashed password),
+    //                  or null if no user exists with that username
     // @throws          SQLException on database errors
+    //
+    // NOTE: This method does NOT verify the password. It returns
+    //   the LoginUser with the stored hash so that the service layer
+    //   can call BCrypt.checkpw(plainPassword, storedHash).
+    //
+    // WHY NOT PASS THE PASSWORD TO THIS METHOD?
+    //   The DAO layer should only do SQL — it should not import
+    //   BCrypt or know how passwords are hashed. That's business
+    //   logic, which belongs in AuthenticationService.
+    // ===============================================================
+    public LoginUser authenticate(String username) throws SQLException {
+
+        // -----------------------------------------------------------
+        // STEP 1: Declare resources outside try so finally can
+        //         close them even if an exception is thrown.
+        //
+        //   conn  → the live MySQL connection
+        //   pstmt → the compiled SQL template with ? placeholders
+        //   rs    → the rows returned by the SELECT query
+        //
+        //   Unlike registerUser(), we DO need a ResultSet here
+        //   because SELECT returns rows that we need to read.
+        // -----------------------------------------------------------
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+
+        try {
+            // -------------------------------------------------------
+            // STEP 2: Open a connection
+            // -------------------------------------------------------
+            conn = DatabaseManager.getConnection();
+
+            // -------------------------------------------------------
+            // STEP 3: Create a PreparedStatement
+            // -------------------------------------------------------
+            // conn.prepareStatement(sql) sends the SQL template to
+            // MySQL for parsing. The ? placeholder is not filled yet.
+            //
+            // No RETURN_GENERATED_KEYS here — SELECT doesn't
+            // generate any keys.
+            // -------------------------------------------------------
+            pstmt = conn.prepareStatement(SELECT_BY_USERNAME_SQL);
+
+            // -------------------------------------------------------
+            // STEP 4: Bind the username to the ? placeholder
+            // -------------------------------------------------------
+            // ?1 → username column
+            //
+            // setString() handles escaping — prevents SQL injection
+            // even if someone types: admin' OR '1'='1
+            // -------------------------------------------------------
+            pstmt.setString(1, username);
+
+            // -------------------------------------------------------
+            // STEP 5: Execute the SELECT
+            // -------------------------------------------------------
+            //
+            // pstmt.executeQuery() — used for SELECT statements.
+            //   Returns a ResultSet (the rows matching the query).
+            //
+            // WHY executeQuery() AND NOT executeUpdate()?
+            //   • executeQuery()  → for SELECT (returns ResultSet)
+            //   • executeUpdate() → for INSERT, UPDATE, DELETE
+            //     (returns an int — the affected row count)
+            // -------------------------------------------------------
+            rs = pstmt.executeQuery();
+
+            // -------------------------------------------------------
+            // STEP 6: Process the ResultSet
+            // -------------------------------------------------------
+            //
+            // rs.next() moves the cursor to the next row.
+            //   • Returns true if a row exists → username was found
+            //   • Returns false if no rows    → username not found
+            //
+            // Since username is UNIQUE, there can be at most ONE row.
+            //
+            // rs.getInt("id") / rs.getString("username") etc.
+            //   Read column values from the current row by column
+            //   name. Using column NAMES (not indices) is more
+            //   readable and less error-prone if columns are
+            //   reordered in the SQL.
+            //
+            // We build a LoginUser and populate it field-by-field
+            // using setters — same pattern as the no-arg constructor
+            // approach used in register().
+            // -------------------------------------------------------
+            if (rs.next()) {
+                LoginUser user = new LoginUser();
+                user.setUserId(rs.getInt("id"));
+                user.setUsername(rs.getString("username"));
+                user.setEmail(rs.getString("email"));
+                user.setPassword(rs.getString("password_hash"));
+                return user;
+            }
+
+            // -------------------------------------------------------
+            // No row found — username doesn't exist in the database.
+            // Return null to signal "user not found" to the caller.
+            // -------------------------------------------------------
+            return null;
+
+        } finally {
+            // -------------------------------------------------------
+            // STEP 7: Clean up resources (ALWAYS runs)
+            // -------------------------------------------------------
+            // Close in REVERSE order of creation:
+            //   ResultSet → PreparedStatement → Connection
+            //
+            // WHY REVERSE ORDER?
+            //   ResultSet depends on PreparedStatement, which depends
+            //   on Connection. Closing child before parent ensures
+            //   each resource releases its hold first.
+            // -------------------------------------------------------
+
+            // Close ResultSet
+            if (rs != null) {
+                try { rs.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            // Close PreparedStatement
+            if (pstmt != null) {
+                try { pstmt.close(); } catch (SQLException e) { e.printStackTrace(); }
+            }
+            // Close Connection
+            DatabaseManager.closeConnection(conn);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // loginUser — original stub, now replaced by authenticate().
+    //             Kept for backward compatibility.
     // ---------------------------------------------------------------
     public LoginUser loginUser(String username, String password) throws SQLException {
-        return null;
+        return authenticate(username);
     }
 
     // ---------------------------------------------------------------
@@ -212,6 +365,7 @@ public class LoginDAO {
     // @throws          SQLException on database errors
     // ---------------------------------------------------------------
     public boolean userExists(String username) throws SQLException {
+        System.out.println("already registered! ");
         return false;
     }
 }
