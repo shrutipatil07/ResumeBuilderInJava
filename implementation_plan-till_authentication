@@ -1,0 +1,260 @@
+# Phase 3 — Resume Architecture Analysis
+
+## 1. Where Resume Data Is Stored
+
+Resume data lives in **three distinct places**, each serving a different role:
+
+### A. In-Memory Model — [User.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/model/User.java)
+
+The `User` POJO holds **all** resume content as flat fields:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `name` | `String` | |
+| `email` | `String` | |
+| `phone` | `String` | |
+| `education` | `String` | Single flat string — not structured |
+| `skills` | `ArrayList<String>` | Only field that's a collection |
+| `experience` | `String` | Single flat string |
+| `projects` | `String` | Single flat string |
+| `certifications` | `String` | Single flat string |
+| `objective` | `String` | |
+| `experienceYears` | `int` | Used as a boolean (0 = fresher, >0 = experienced) |
+
+> [!IMPORTANT]
+> `User` is an **all-fields constructor, getters-only** class with no setters. Any new data fields for templates would require modifying the constructor signature.
+
+### B. UI Form — [ResumeBuilder.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java)
+
+The `User` object is **constructed at button-click time** from 9 `JTextField`s + 1 `JCheckBox` (lines 96-112 and 169-185). The UI builds the `User` twice — once in the "Generate Resume" listener and once in the "Save to Database" listener.
+
+### C. MySQL Database — via [UserDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java)
+
+`UserDAO.save(User)` persists the `User` across **7 normalized tables** in one transaction:
+
+```
+users → resumes → education → skills + resume_skills → experience → projects → certifications
+```
+
+> [!NOTE]
+> The database stores **much richer structure** than the `User` model (e.g., separate `institution`, `degree`, `start_year` in education). Currently, defaults like `"Not specified"` fill the structured columns because the UI collects flat strings.
+
+---
+
+## 2. How FresherResume and ExperiencedResume Differ
+
+### Class Hierarchy
+
+```mermaid
+classDiagram
+    class Resume {
+        <<abstract>>
+        #user : User
+        +Resume(User user)
+        +getFormattedResume()* String
+    }
+    class FresherResume {
+        +getFormattedResume() String
+    }
+    class ExperiencedResume {
+        +getFormattedResume() String
+    }
+    Resume <|-- FresherResume
+    Resume <|-- ExperiencedResume
+```
+
+### Content Differences
+
+| Section | [FresherResume](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/FresherResume.java) | [ExperiencedResume](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ExperiencedResume.java) |
+|---------|---------------|-------------------|
+| Header | `"📄 Fresher Resume"` | `"📄 Experienced Resume"` |
+| Name | ✅ | ✅ |
+| Phone | ✅ | ✅ |
+| Email | ✅ | ✅ |
+| Education | ✅ | ❌ Not shown |
+| Skills | ✅ | ✅ |
+| Objective | ✅ | ❌ Not shown |
+| Experience | ❌ Not shown | ✅ |
+| Projects | ❌ Not shown | ✅ |
+| Certifications | ❌ Not shown | ✅ |
+
+> [!WARNING]
+> The Fresher/Experienced distinction controls **which data fields appear**, not **visual styling or layout**. Both produce plain text strings with the same formatting approach (emoji prefix + label + value, separated by `\n`).
+
+---
+
+## 3. Where Formatting / Presentation Logic Currently Exists
+
+Formatting is **entirely inside the two `getFormattedResume()` methods**:
+
+- [FresherResume.java:9-16](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/FresherResume.java#L9-L16) — returns a plain text string
+- [ExperiencedResume.java:9-17](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ExperiencedResume.java#L9-L17) — returns a plain text string
+
+### Key Observation: Content Selection + Formatting Are Fused
+
+Currently, a single method handles **two separate concerns**:
+1. **What** to show (which fields to include) — *content selection*
+2. **How** to show it (text layout, emoji prefixes, `\n` separators) — *presentation*
+
+These two concerns are **tangled together** in the same `getFormattedResume()` method. A template system needs to separate them.
+
+---
+
+## 4. Where PDF Generation Currently Happens
+
+[PDFGenerator.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/export/PDFGenerator.java) — a single static method:
+
+```
+PDFGenerator.createPDF(String content, String fileName)
+```
+
+### What It Does
+1. Creates an iText `Document`
+2. Opens a `FileOutputStream` to `fileName`
+3. Adds the **entire content** as **one `Paragraph`**
+4. Closes the document
+
+### What It Does NOT Do
+- ❌ No fonts, no bold/italic, no heading sizes
+- ❌ No sections, columns, or layout structure
+- ❌ No colors, lines, or visual separation
+- ❌ No template or style awareness — it's purely a string-to-PDF dumper
+
+> [!IMPORTANT]
+> The current `PDFGenerator` receives a **pre-formatted plain text `String`** from `getFormattedResume()`. It has **zero control** over layout or styling. For templates to work, PDF generation must receive **structured data** (the `User` object) instead of a flat string, so it can apply formatting itself.
+
+### Call Chain
+
+```mermaid
+flowchart LR
+    A["ResumeBuilder<br/>(UI button click)"] -->|"User object"| B["FresherResume /<br/>ExperiencedResume"]
+    B -->|"plain text String"| C["PDFGenerator.createPDF()"]
+    C -->|"writes"| D["resume.pdf"]
+```
+
+---
+
+## 5. Where Template Selection Logic Currently Exists (If Any)
+
+### Current "Selection" — [ResumeBuilder.java:114](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java#L114)
+
+```java
+Resume resume = isExperienced.isSelected()
+    ? new ExperiencedResume(user)
+    : new FresherResume(user);
+```
+
+This is a **binary toggle**, not a template system:
+
+| Aspect | Current State |
+|--------|--------------|
+| Selection mechanism | `JCheckBox` ("Experienced?") |
+| Number of options | 2 (hardcoded) |
+| What it controls | Which **fields** to include |
+| What it does NOT control | Visual style, layout, fonts, colors |
+| Extensibility | Adding a 3rd type requires modifying `ResumeBuilder` |
+
+> [!NOTE]
+> There is **no template selection UI**. There is **no template abstraction**. There is **no `TemplateStrategy` interface**. The Fresher/Experienced distinction is about **data content**, not **visual design** — these are orthogonal concerns.
+
+---
+
+## 6. Classes Needing Modification for Strategy Pattern
+
+### Impact Map
+
+```mermaid
+flowchart TD
+    subgraph "MUST CHANGE"
+        A["PDFGenerator<br/>───────────<br/>Currently receives a String.<br/>Must receive User + Template<br/>to control layout/styling."]
+        B["ResumeBuilder (UI)<br/>───────────<br/>Must add template selection<br/>(dropdown/radio). Must pass<br/>selected template to PDF gen."]
+    end
+
+    subgraph "CHANGE OR DEPRECATE"
+        C["Resume (abstract)<br/>FresherResume<br/>ExperiencedResume<br/>───────────<br/>getFormattedResume() becomes<br/>redundant once templates<br/>handle formatting."]
+    end
+
+    subgraph "NEW CLASSES"
+        D["ResumeTemplate (interface)<br/>───────────<br/>Strategy contract:<br/>generatePDF(User, OutputStream)"]
+        E["ClassicTemplate<br/>ModernTemplate<br/>MinimalTemplate<br/>───────────<br/>Concrete strategies with<br/>different iText layouts"]
+    end
+
+    subgraph "NO CHANGE"
+        F["User.java"]
+        G["UserDAO.java"]
+        H["LoginDAO / AuthService"]
+        I["LoginFrame / RegisterFrame"]
+        J["Dashboard.java"]
+        K["DatabaseManager / ConfigLoader"]
+    end
+
+    B -->|"passes template choice"| A
+    A -->|"delegates to"| D
+    D --- E
+```
+
+### Detailed Breakdown
+
+| Class | Change Needed | Reason |
+|-------|--------------|--------|
+| [PDFGenerator.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/export/PDFGenerator.java) | **Major rewrite** | Must accept structured `User` data + a template strategy instead of a flat string. Becomes the orchestrator that delegates to the chosen template. |
+| [ResumeBuilder.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java) | **Moderate change** | Add a template selector (e.g., `JComboBox`). Pass the selected template to PDF generation. The "Experienced?" checkbox remains — it controls **content**, which is orthogonal to **template style**. |
+| [Resume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/Resume.java) | **Evaluate** | Its `getFormattedResume()` returns plain text. Once templates handle formatting, this becomes redundant for PDF. Could be kept for non-PDF uses (console preview, etc.) or deprecated. |
+| [FresherResume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/FresherResume.java) | **Evaluate** | Same as above — may become dead code if templates handle the Fresher/Experienced distinction. |
+| [ExperiencedResume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ExperiencedResume.java) | **Evaluate** | Same as above. |
+
+---
+
+## 7. What Must NOT Change
+
+| Component | Files | Why It's Protected |
+|-----------|-------|--------------------|
+| **Authentication** | `AuthenticationService`, `LoginDAO`, `LoginUser` | BCrypt login/register flow is complete and working |
+| **Database Persistence** | `UserDAO.save()`, `DatabaseManager`, `ConfigLoader` | Transactional 7-table save is fully implemented |
+| **Schema** | `schema.sql` | All 10 tables are already defined with proper relationships |
+| **Navigation** | `LoginFrame`, `RegisterFrame`, `Dashboard` | Login → Dashboard → ResumeBuilder flow works correctly |
+| **User Model** | `User.java` (existing fields) | DAO and UI depend on the current constructor and getters |
+| **Validation** | `ResumeBuilder.validateInput()`, `AuthenticationService.validateRegistration()` | Input validation at both UI and service layers |
+| **Existing config** | `config.properties`, `pom.xml` (existing deps) | DB config and current dependencies are stable |
+
+---
+
+## Proposed Class Responsibilities (Strategy Pattern)
+
+### The Two Orthogonal Axes
+
+```
+                        CONTENT (what fields to show)
+                     ┌──────────────────────────────────┐
+                     │   Fresher        Experienced     │
+          ┌──────────┼──────────────────────────────────┤
+  STYLE   │ Classic  │  Classic+Fresher  Classic+Exp    │
+  (how    │ Modern   │  Modern+Fresher   Modern+Exp     │
+  it      │ Minimal  │  Minimal+Fresher  Minimal+Exp    │
+  looks)  └──────────┼──────────────────────────────────┤
+                     └──────────────────────────────────┘
+```
+
+The **"Experienced?" checkbox** controls the first axis (content).
+The **new template selector** controls the second axis (style).
+These are **independent** — every template should work with both Fresher and Experienced data.
+
+### Proposed Responsibility Map
+
+| New Concept | Responsibility | Pattern Role |
+|-------------|---------------|--------------|
+| `ResumeTemplate` (interface) | Defines the contract: *"Given a `User`, produce a styled PDF"* | **Strategy interface** |
+| `ClassicTemplate` | Concrete strategy — traditional, serif-based layout | **Concrete strategy** |
+| `ModernTemplate` | Concrete strategy — clean, sans-serif, color accents | **Concrete strategy** |
+| `MinimalTemplate` | Concrete strategy — minimal, whitespace-heavy | **Concrete strategy** |
+| `PDFGenerator` (refactored) | Receives a `User` + `ResumeTemplate`, delegates PDF creation to the template | **Context** |
+| `ResumeBuilder` (modified) | Adds a `JComboBox` for template selection, passes the choice downstream | **Client** |
+
+### Key Design Decision
+
+> [!IMPORTANT]
+> **Who should know about Fresher vs. Experienced?**
+> 
+> Each template implementation decides how to handle the `experienceYears` field. If `experienceYears == 0`, the template simply omits the Experience section and emphasizes Education/Objective instead. This keeps the Fresher/Experienced logic **inside the template** rather than needing separate template subclasses for each type.
+> 
+> This means you do NOT need `ClassicFresherTemplate` + `ClassicExperiencedTemplate`. You need just `ClassicTemplate` — and it internally checks `user.getExperienceYears()`.

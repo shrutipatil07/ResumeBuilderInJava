@@ -46,5 +46,9 @@ public class TemplateTest {
             System.out.println(template.render(user));
             System.out.println();
         }
+
+        ResumeTemplate t = TemplateFactory.create(TemplateType.MODERN);
+System.out.println(t.getClass().getSimpleName()); // should print: ModernTemplate
+System.out.println(t instanceof ModernTemplate);    // should print: true
     }
 }

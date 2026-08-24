@@ -5,6 +5,8 @@ import com.resumegenerator.resume.Resume;
 import com.resumegenerator.resume.FresherResume;
 import com.resumegenerator.resume.ExperiencedResume;
 import com.resumegenerator.export.PDFGenerator;
+import com.resumegenerator.resume.TemplateType;
+import com.resumegenerator.resume.TemplateFactory;
 
 // ---------------------------------------------------------------
 // NEW IMPORT: UserDAO — our Data Access Object that knows how to
@@ -30,6 +32,10 @@ public class ResumeBuilder extends JFrame {
     private JTextField nameField, emailField, phoneField, educationField, experienceField, projectsField, certificationsField, objectiveField, skillsField;
     private JCheckBox isExperienced;
     private JButton generateButton;
+    // NEW — the dropdown itself
+    private JComboBox<String> templateComboBox;
+    // NEW — the selected value, stored as TemplateType (not a raw String)
+    private TemplateType selectedTemplateType = TemplateType.CLASSIC; // sensible default
 
     // ---------------------------------------------------------------
     // NEW FIELD: the "Save to Database" button.
@@ -52,7 +58,7 @@ public class ResumeBuilder extends JFrame {
         // Each row has 2 columns (label | field), so the new button
         // will occupy one cell in the 11th row.
         // ---------------------------------------------------------------
-        setLayout(new GridLayout(11, 2));
+        setLayout(new GridLayout(12, 2));
 
         add(new JLabel("Name:"));
         nameField = new JTextField(); add(nameField);
@@ -82,14 +88,36 @@ public class ResumeBuilder extends JFrame {
         add(new JLabel("Objective:"));
         objectiveField = new JTextField(); add(objectiveField);
 
+        // Template selection row
+        add(new JLabel("Template:"));
+        templateComboBox = new JComboBox<>(new String[]{"Classic", "Modern", "Minimal"});
+        add(templateComboBox);
+
+        // Updates selectedTemplateType whenever the user picks a
+        // different option, converting the JComboBox's String selection
+        // into the corresponding TemplateType enum value.
+        templateComboBox.addActionListener(e -> {
+            String choice = (String) templateComboBox.getSelectedItem();
+            switch (choice) {
+                case "Modern":
+                    selectedTemplateType = TemplateType.MODERN;
+                    break;
+                case "Minimal":
+                    selectedTemplateType = TemplateType.MINIMAL;
+                    break;
+                default:
+                    selectedTemplateType = TemplateType.CLASSIC;
+            }
+        });
+
         isExperienced = new JCheckBox("Experienced?");
         add(isExperienced);
 
-        generateButton = new JButton("Generate Resume");
-        add(generateButton);
-
         // Enable/Disable experience field based on checkbox
         isExperienced.addActionListener(e -> experienceField.setEnabled(isExperienced.isSelected()));
+
+        generateButton = new JButton("Generate Resume");
+        add(generateButton);
 
         generateButton.addActionListener(e -> {
             if (validateInput()) {
@@ -112,8 +140,10 @@ public class ResumeBuilder extends JFrame {
                 );
 
                 Resume resume = isExperienced.isSelected() ? new ExperiencedResume(user) : new FresherResume(user);
-                PDFGenerator.createPDF(resume.getFormattedResume(), "resume.pdf");
-                JOptionPane.showMessageDialog(null, "Resume PDF Generated!");
+                resume.setTemplate(TemplateFactory.create(selectedTemplateType));
+                String fileName = "resume_" + selectedTemplateType.name().toLowerCase() + ".pdf";
+                PDFGenerator.createPDF(resume, fileName);
+                JOptionPane.showMessageDialog(null, "Resume PDF Generated: " + fileName);
             }
         });
 

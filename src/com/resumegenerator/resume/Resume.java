@@ -27,5 +27,14 @@ public abstract class Resume {
         this.template = template;
     }
 
+    // NEW — delegates rendering to whichever ResumeTemplate is attached.
+    // Resume still does no formatting itself; it just brokers the call.
+    public String renderWithTemplate() {
+        if (template == null) {
+            throw new IllegalStateException("No ResumeTemplate set on this Resume.");
+        }
+        return template.render(user);
+    }
+
     public abstract String getFormattedResume();
 }
