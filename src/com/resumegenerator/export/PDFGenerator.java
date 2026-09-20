@@ -8,15 +8,28 @@ import com.resumegenerator.resume.Resume;
 public class PDFGenerator {
 
     public static void createPDF(String content, String fileName) {
+        if (content == null) content = "";
+
+        // Defensive sanitization of non-WinAnsi font characters for iText
+        content = content.replace("•", "-")
+                         .replace("»", ">")
+                         .replace("·", "|");
+
+        Document document = new Document();
         try {
-            Document document = new Document();
             PdfWriter.getInstance(document, new FileOutputStream(fileName));
             document.open();
-            document.add(new Paragraph(content));
+            Font font = FontFactory.getFont(FontFactory.HELVETICA, 11, BaseColor.BLACK);
+            document.add(new Paragraph(content, font));
             document.close();
             System.out.println("✅ PDF Created: " + fileName);
+        } catch (java.io.IOException e) {
+            System.err.println("❌ PDF File Lock Error: " + e.getMessage());
+            throw new RuntimeException("Could not save PDF file '" + fileName + "'.\nIf the file is currently open in another program, please close it and try again.", e);
         } catch (Exception e) {
+            System.err.println("❌ PDF Generation Error: " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("PDF Generation Failed: " + e.getMessage(), e);
         }
     }
 

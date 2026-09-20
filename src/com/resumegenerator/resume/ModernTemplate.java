@@ -21,7 +21,7 @@ public class ModernTemplate implements ResumeTemplate {
         sb.append("\n\n");
 
         if (resume.getObjective() != null && !resume.getObjective().trim().isEmpty()) {
-            sb.append("» ").append(resume.getObjective()).append("\n\n");
+            sb.append("> ").append(resume.getObjective()).append("\n\n");
         }
 
         List<Skill> skillList = resume.getSkillList().stream()
@@ -29,7 +29,7 @@ public class ModernTemplate implements ResumeTemplate {
                 .collect(Collectors.toList());
         if (!skillList.isEmpty()) {
             sb.append("SKILLS  ");
-            sb.append(skillList.stream().map(Skill::getSkillName).collect(Collectors.joining(" · ")));
+            sb.append(skillList.stream().map(Skill::getFormattedSkill).collect(Collectors.joining(" | ")));
             sb.append("\n\n");
         }
 
@@ -40,10 +40,16 @@ public class ModernTemplate implements ResumeTemplate {
             sb.append("EXPERIENCE\n");
             for (Experience exp : expList) {
                 sb.append("  ").append(exp.getJobTitle()).append(" @ ").append(exp.getCompanyName());
-                String endStr = (exp.getEndDate() != null) ? exp.getEndDate().toString() : "Present";
-                sb.append(" (").append(exp.getStartDate()).append(" - ").append(endStr).append(")\n");
-                if (exp.getDescription() != null && !exp.getDescription().isEmpty()) {
-                    sb.append("    ").append(exp.getDescription()).append("\n");
+                if (exp.getLocation() != null && !exp.getLocation().trim().isEmpty()) {
+                    sb.append(" (").append(exp.getLocation().trim()).append(")");
+                }
+                if (exp.getStartDate() != null) {
+                    String endStr = (exp.getEndDate() != null) ? exp.getEndDate().toString() : "Present";
+                    sb.append(" (").append(exp.getStartDate()).append(" - ").append(endStr).append(")");
+                }
+                sb.append("\n");
+                if (exp.getDescription() != null && !exp.getDescription().trim().isEmpty()) {
+                    sb.append("    ").append(exp.getDescription().trim()).append("\n");
                 }
             }
             sb.append("\n");
@@ -59,10 +65,10 @@ public class ModernTemplate implements ResumeTemplate {
         if (!eduList.isEmpty() || !certList.isEmpty()) {
             sb.append("CREDENTIALS\n");
             for (Education edu : eduList) {
-                sb.append("  Education: ").append(edu.getDegree()).append(" - ").append(edu.getInstitution()).append("\n");
+                sb.append("  Education: ").append(edu.getFormattedEducation()).append("\n");
             }
             for (Certification cert : certList) {
-                sb.append("  Certification: ").append(cert.getCertificationName()).append(" (").append(cert.getIssuingOrg()).append(")\n");
+                sb.append("  Certification: ").append(cert.getFormattedCertification()).append("\n");
             }
             sb.append("\n");
         }
@@ -73,9 +79,17 @@ public class ModernTemplate implements ResumeTemplate {
         if (!projList.isEmpty()) {
             sb.append("PROJECTS\n");
             for (Project proj : projList) {
-                sb.append("  » ").append(proj.getProjectName());
-                if (proj.getTechStack() != null) sb.append(" [").append(proj.getTechStack()).append("]");
+                sb.append("  > ").append(proj.getProjectName());
+                if (proj.getTechStack() != null && !proj.getTechStack().trim().isEmpty()) {
+                    sb.append(" [").append(proj.getTechStack().trim()).append("]");
+                }
                 sb.append("\n");
+                if (proj.getDescription() != null && !proj.getDescription().trim().isEmpty()) {
+                    sb.append("    ").append(proj.getDescription().trim()).append("\n");
+                }
+                if (proj.getProjectUrl() != null && !proj.getProjectUrl().trim().isEmpty()) {
+                    sb.append("    URL: ").append(proj.getProjectUrl().trim()).append("\n");
+                }
             }
         }
 

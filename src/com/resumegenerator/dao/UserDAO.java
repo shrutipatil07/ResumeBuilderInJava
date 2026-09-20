@@ -437,12 +437,24 @@ public class UserDAO {
                 eduStmt = conn.prepareStatement(INSERT_EDUCATION_FULL_SQL);
                 for (com.resumegenerator.model.Education edu : resume.getEducationList()) {
                     eduStmt.setInt(1, generatedResumeId);
-                    eduStmt.setString(2, edu.getInstitution() != null ? edu.getInstitution() : "Not specified");
-                    eduStmt.setString(3, edu.getDegree() != null ? edu.getDegree() : "Not specified");
-                    eduStmt.setString(4, edu.getFieldOfStudy());
-                    eduStmt.setInt(5, edu.getStartYear() > 0 ? edu.getStartYear() : java.util.Calendar.getInstance().get(java.util.Calendar.YEAR));
-                    if (edu.getEndYear() != null) eduStmt.setInt(6, edu.getEndYear()); else eduStmt.setNull(6, java.sql.Types.INTEGER);
-                    eduStmt.setString(7, edu.getGrade());
+                    eduStmt.setString(2, edu.getInstitution());
+                    eduStmt.setString(3, edu.getDegree());
+                    if (edu.getFieldOfStudy() != null && !edu.getFieldOfStudy().trim().isEmpty()) {
+                        eduStmt.setString(4, edu.getFieldOfStudy().trim());
+                    } else {
+                        eduStmt.setNull(4, java.sql.Types.VARCHAR);
+                    }
+                    eduStmt.setInt(5, edu.getStartYear());
+                    if (edu.getEndYear() != null) {
+                        eduStmt.setInt(6, edu.getEndYear());
+                    } else {
+                        eduStmt.setNull(6, java.sql.Types.INTEGER);
+                    }
+                    if (edu.getGrade() != null && !edu.getGrade().trim().isEmpty()) {
+                        eduStmt.setString(7, edu.getGrade().trim());
+                    } else {
+                        eduStmt.setNull(7, java.sql.Types.VARCHAR);
+                    }
                     eduStmt.setInt(8, edu.getDisplayOrder());
                     eduStmt.executeUpdate();
                 }
@@ -466,8 +478,11 @@ public class UserDAO {
                         skill.setSkillId(skillId);
                         resumeSkillStmt.setInt(1, generatedResumeId);
                         resumeSkillStmt.setInt(2, skillId);
-                        if (skill.getProficiencyLevel() != null) resumeSkillStmt.setString(3, skill.getProficiencyLevel().name());
-                        else resumeSkillStmt.setNull(3, java.sql.Types.VARCHAR);
+                        if (skill.getProficiencyLevel() != null) {
+                            resumeSkillStmt.setString(3, skill.getProficiencyLevel().name());
+                        } else {
+                            resumeSkillStmt.setNull(3, java.sql.Types.VARCHAR);
+                        }
                         resumeSkillStmt.setInt(4, skill.getDisplayOrder());
                         resumeSkillStmt.executeUpdate();
                     }
@@ -479,12 +494,24 @@ public class UserDAO {
                 expStmt = conn.prepareStatement(INSERT_EXPERIENCE_FULL_SQL);
                 for (com.resumegenerator.model.Experience exp : resume.getExperienceList()) {
                     expStmt.setInt(1, generatedResumeId);
-                    expStmt.setString(2, exp.getCompanyName() != null ? exp.getCompanyName() : "Not specified");
-                    expStmt.setString(3, exp.getJobTitle() != null ? exp.getJobTitle() : "Not specified");
-                    expStmt.setString(4, exp.getLocation());
-                    expStmt.setDate(5, exp.getStartDate() != null ? java.sql.Date.valueOf(exp.getStartDate()) : new java.sql.Date(System.currentTimeMillis()));
-                    if (exp.getEndDate() != null) expStmt.setDate(6, java.sql.Date.valueOf(exp.getEndDate())); else expStmt.setNull(6, java.sql.Types.DATE);
-                    expStmt.setString(7, exp.getDescription());
+                    expStmt.setString(2, exp.getCompanyName());
+                    expStmt.setString(3, exp.getJobTitle());
+                    if (exp.getLocation() != null && !exp.getLocation().trim().isEmpty()) {
+                        expStmt.setString(4, exp.getLocation().trim());
+                    } else {
+                        expStmt.setNull(4, java.sql.Types.VARCHAR);
+                    }
+                    expStmt.setDate(5, java.sql.Date.valueOf(exp.getStartDate()));
+                    if (exp.getEndDate() != null) {
+                        expStmt.setDate(6, java.sql.Date.valueOf(exp.getEndDate()));
+                    } else {
+                        expStmt.setNull(6, java.sql.Types.DATE);
+                    }
+                    if (exp.getDescription() != null && !exp.getDescription().trim().isEmpty()) {
+                        expStmt.setString(7, exp.getDescription().trim());
+                    } else {
+                        expStmt.setNull(7, java.sql.Types.VARCHAR);
+                    }
                     expStmt.setInt(8, exp.getDisplayOrder());
                     expStmt.executeUpdate();
                 }
@@ -494,10 +521,22 @@ public class UserDAO {
                 projStmt = conn.prepareStatement(INSERT_PROJECT_FULL_SQL);
                 for (com.resumegenerator.model.Project proj : resume.getProjectList()) {
                     projStmt.setInt(1, generatedResumeId);
-                    projStmt.setString(2, proj.getProjectName() != null ? proj.getProjectName() : "Untitled Project");
-                    projStmt.setString(3, proj.getDescription());
-                    projStmt.setString(4, proj.getTechStack());
-                    projStmt.setString(5, proj.getProjectUrl());
+                    projStmt.setString(2, proj.getProjectName());
+                    if (proj.getDescription() != null && !proj.getDescription().trim().isEmpty()) {
+                        projStmt.setString(3, proj.getDescription().trim());
+                    } else {
+                        projStmt.setNull(3, java.sql.Types.VARCHAR);
+                    }
+                    if (proj.getTechStack() != null && !proj.getTechStack().trim().isEmpty()) {
+                        projStmt.setString(4, proj.getTechStack().trim());
+                    } else {
+                        projStmt.setNull(4, java.sql.Types.VARCHAR);
+                    }
+                    if (proj.getProjectUrl() != null && !proj.getProjectUrl().trim().isEmpty()) {
+                        projStmt.setString(5, proj.getProjectUrl().trim());
+                    } else {
+                        projStmt.setNull(5, java.sql.Types.VARCHAR);
+                    }
                     projStmt.setInt(6, proj.getDisplayOrder());
                     projStmt.executeUpdate();
                 }
@@ -507,10 +546,18 @@ public class UserDAO {
                 certStmt = conn.prepareStatement(INSERT_CERTIFICATION_FULL_SQL);
                 for (com.resumegenerator.model.Certification cert : resume.getCertificationList()) {
                     certStmt.setInt(1, generatedResumeId);
-                    certStmt.setString(2, cert.getCertificationName() != null ? cert.getCertificationName() : "Untitled Certification");
+                    certStmt.setString(2, cert.getCertificationName());
                     certStmt.setString(3, cert.getIssuingOrg());
-                    if (cert.getIssueDate() != null) certStmt.setDate(4, java.sql.Date.valueOf(cert.getIssueDate())); else certStmt.setNull(4, java.sql.Types.DATE);
-                    certStmt.setString(5, cert.getCredentialUrl());
+                    if (cert.getIssueDate() != null) {
+                        certStmt.setDate(4, java.sql.Date.valueOf(cert.getIssueDate()));
+                    } else {
+                        certStmt.setNull(4, java.sql.Types.DATE);
+                    }
+                    if (cert.getCredentialUrl() != null && !cert.getCredentialUrl().trim().isEmpty()) {
+                        certStmt.setString(5, cert.getCredentialUrl().trim());
+                    } else {
+                        certStmt.setNull(5, java.sql.Types.VARCHAR);
+                    }
                     certStmt.setInt(6, cert.getDisplayOrder());
                     certStmt.executeUpdate();
                 }

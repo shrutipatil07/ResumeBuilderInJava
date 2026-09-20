@@ -51,8 +51,20 @@ public class Project {
     public int getDisplayOrder() { return displayOrder; }
     public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
 
+    public String getFormattedProject() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(projectName);
+        if (techStack != null && !techStack.trim().isEmpty()) {
+            sb.append(" [").append(techStack.trim()).append("]");
+        }
+        if (projectUrl != null && !projectUrl.trim().isEmpty()) {
+            sb.append(" (").append(projectUrl.trim()).append(")");
+        }
+        return sb.toString();
+    }
+
     @Override
     public String toString() {
-        return projectName + (techStack != null ? " [" + techStack + "]" : "");
+        return getFormattedProject();
     }
 }

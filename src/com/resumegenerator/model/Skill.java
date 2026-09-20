@@ -38,8 +38,17 @@ public class Skill {
     public int getDisplayOrder() { return displayOrder; }
     public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
 
+    public String getFormattedSkill() {
+        if (proficiencyLevel != null) {
+            String name = proficiencyLevel.name();
+            String levelStr = name.substring(0, 1).toUpperCase() + name.substring(1).toLowerCase();
+            return skillName + " - " + levelStr;
+        }
+        return skillName;
+    }
+
     @Override
     public String toString() {
-        return skillName + (proficiencyLevel != null ? " (" + proficiencyLevel + ")" : "");
+        return getFormattedSkill();
     }
 }

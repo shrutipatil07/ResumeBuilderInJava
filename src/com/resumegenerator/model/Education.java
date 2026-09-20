@@ -63,9 +63,30 @@ public class Education {
     public int getDisplayOrder() { return displayOrder; }
     public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
 
+    public String getFormattedEducation() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(degree);
+        if (fieldOfStudy != null && !fieldOfStudy.trim().isEmpty()) {
+            sb.append(" in ").append(fieldOfStudy.trim());
+        }
+        sb.append(" - ").append(institution);
+        if (startYear > 0) {
+            sb.append(" (").append(startYear);
+            if (endYear != null && endYear > 0) {
+                sb.append(" - ").append(endYear);
+            } else {
+                sb.append(" - Present");
+            }
+            sb.append(")");
+        }
+        if (grade != null && !grade.trim().isEmpty()) {
+            sb.append(" [Grade: ").append(grade.trim()).append("]");
+        }
+        return sb.toString();
+    }
+
     @Override
     public String toString() {
-        String years = (endYear != null) ? startYear + " - " + endYear : startYear + " - Present";
-        return degree + " in " + (fieldOfStudy != null ? fieldOfStudy : "") + " from " + institution + " (" + years + ")";
+        return getFormattedEducation();
     }
 }

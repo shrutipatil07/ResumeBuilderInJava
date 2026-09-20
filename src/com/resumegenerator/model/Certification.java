@@ -53,8 +53,23 @@ public class Certification {
     public int getDisplayOrder() { return displayOrder; }
     public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
 
+    public String getFormattedCertification() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(certificationName);
+        if (issuingOrg != null && !issuingOrg.trim().isEmpty()) {
+            sb.append(" - ").append(issuingOrg.trim());
+        }
+        if (issueDate != null) {
+            sb.append(" (").append(issueDate).append(")");
+        }
+        if (credentialUrl != null && !credentialUrl.trim().isEmpty()) {
+            sb.append(" [").append(credentialUrl.trim()).append("]");
+        }
+        return sb.toString();
+    }
+
     @Override
     public String toString() {
-        return certificationName + (issuingOrg != null ? " by " + issuingOrg : "");
+        return getFormattedCertification();
     }
 }

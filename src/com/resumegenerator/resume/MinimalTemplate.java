@@ -36,7 +36,7 @@ public class MinimalTemplate implements ResumeTemplate {
                 .collect(Collectors.toList());
         if (!skillList.isEmpty()) {
             sb.append("Skills: ");
-            String sks = skillList.stream().map(Skill::getSkillName).collect(Collectors.joining(", "));
+            String sks = skillList.stream().map(Skill::getFormattedSkill).collect(Collectors.joining(", "));
             sb.append(sks).append("\n");
         }
 

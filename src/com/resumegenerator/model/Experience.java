@@ -65,9 +65,26 @@ public class Experience {
     public int getDisplayOrder() { return displayOrder; }
     public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
 
+    public String getFormattedExperience() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(jobTitle).append(" at ").append(companyName);
+        if (location != null && !location.trim().isEmpty()) {
+            sb.append(" (").append(location.trim()).append(")");
+        }
+        if (startDate != null) {
+            sb.append(" [").append(startDate);
+            if (endDate != null) {
+                sb.append(" - ").append(endDate);
+            } else {
+                sb.append(" - Present");
+            }
+            sb.append("]");
+        }
+        return sb.toString();
+    }
+
     @Override
     public String toString() {
-        String dates = startDate + " to " + (endDate != null ? endDate.toString() : "Present");
-        return jobTitle + " at " + companyName + " (" + dates + ")";
+        return getFormattedExperience();
     }
 }

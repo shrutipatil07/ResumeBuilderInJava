@@ -35,15 +35,17 @@ public class ClassicTemplate implements ResumeTemplate {
             sb.append("EDUCATION\n");
             sb.append("---------\n");
             for (Education edu : eduList) {
-                sb.append("• ").append(edu.getDegree());
-                if (edu.getFieldOfStudy() != null && !edu.getFieldOfStudy().isEmpty()) {
-                    sb.append(" in ").append(edu.getFieldOfStudy());
+                sb.append("- ").append(edu.getDegree());
+                if (edu.getFieldOfStudy() != null && !edu.getFieldOfStudy().trim().isEmpty()) {
+                    sb.append(" in ").append(edu.getFieldOfStudy().trim());
                 }
                 sb.append(" - ").append(edu.getInstitution());
-                String endStr = (edu.getEndYear() != null) ? String.valueOf(edu.getEndYear()) : "Present";
-                sb.append(" (").append(edu.getStartYear()).append(" - ").append(endStr).append(")");
-                if (edu.getGrade() != null && !edu.getGrade().isEmpty()) {
-                    sb.append(" [Grade: ").append(edu.getGrade()).append("]");
+                if (edu.getStartYear() > 0) {
+                    String endStr = (edu.getEndYear() != null && edu.getEndYear() > 0) ? String.valueOf(edu.getEndYear()) : "Present";
+                    sb.append(" (").append(edu.getStartYear()).append(" - ").append(endStr).append(")");
+                }
+                if (edu.getGrade() != null && !edu.getGrade().trim().isEmpty()) {
+                    sb.append(" [Grade: ").append(edu.getGrade().trim()).append("]");
                 }
                 sb.append("\n");
             }
@@ -57,7 +59,7 @@ public class ClassicTemplate implements ResumeTemplate {
             sb.append("SKILLS\n");
             sb.append("------\n");
             String skillsFormatted = skillList.stream()
-                    .map(Skill::toString)
+                    .map(Skill::getFormattedSkill)
                     .collect(Collectors.joining(", "));
             sb.append(skillsFormatted).append("\n\n");
         }
@@ -69,14 +71,17 @@ public class ClassicTemplate implements ResumeTemplate {
             sb.append("EXPERIENCE\n");
             sb.append("----------\n");
             for (Experience exp : expList) {
-                sb.append("• ").append(exp.getJobTitle()).append(" at ").append(exp.getCompanyName());
-                if (exp.getLocation() != null && !exp.getLocation().isEmpty()) {
-                    sb.append(" (").append(exp.getLocation()).append(")");
+                sb.append("- ").append(exp.getJobTitle()).append(" at ").append(exp.getCompanyName());
+                if (exp.getLocation() != null && !exp.getLocation().trim().isEmpty()) {
+                    sb.append(" (").append(exp.getLocation().trim()).append(")");
                 }
-                String endStr = (exp.getEndDate() != null) ? exp.getEndDate().toString() : "Present";
-                sb.append(" [").append(exp.getStartDate()).append(" - ").append(endStr).append("]\n");
-                if (exp.getDescription() != null && !exp.getDescription().isEmpty()) {
-                    sb.append("   ").append(exp.getDescription()).append("\n");
+                if (exp.getStartDate() != null) {
+                    String endStr = (exp.getEndDate() != null) ? exp.getEndDate().toString() : "Present";
+                    sb.append(" [").append(exp.getStartDate()).append(" - ").append(endStr).append("]");
+                }
+                sb.append("\n");
+                if (exp.getDescription() != null && !exp.getDescription().trim().isEmpty()) {
+                    sb.append("   ").append(exp.getDescription().trim()).append("\n");
                 }
             }
             sb.append("\n");
@@ -89,16 +94,16 @@ public class ClassicTemplate implements ResumeTemplate {
             sb.append("PROJECTS\n");
             sb.append("--------\n");
             for (Project proj : projList) {
-                sb.append("• ").append(proj.getProjectName());
-                if (proj.getTechStack() != null && !proj.getTechStack().isEmpty()) {
-                    sb.append(" (").append(proj.getTechStack()).append(")");
+                sb.append("- ").append(proj.getProjectName());
+                if (proj.getTechStack() != null && !proj.getTechStack().trim().isEmpty()) {
+                    sb.append(" (").append(proj.getTechStack().trim()).append(")");
                 }
                 sb.append("\n");
-                if (proj.getDescription() != null && !proj.getDescription().isEmpty()) {
-                    sb.append("   ").append(proj.getDescription()).append("\n");
+                if (proj.getDescription() != null && !proj.getDescription().trim().isEmpty()) {
+                    sb.append("   ").append(proj.getDescription().trim()).append("\n");
                 }
-                if (proj.getProjectUrl() != null && !proj.getProjectUrl().isEmpty()) {
-                    sb.append("   URL: ").append(proj.getProjectUrl()).append("\n");
+                if (proj.getProjectUrl() != null && !proj.getProjectUrl().trim().isEmpty()) {
+                    sb.append("   URL: ").append(proj.getProjectUrl().trim()).append("\n");
                 }
             }
             sb.append("\n");
@@ -111,14 +116,17 @@ public class ClassicTemplate implements ResumeTemplate {
             sb.append("CERTIFICATIONS\n");
             sb.append("--------------\n");
             for (Certification cert : certList) {
-                sb.append("• ").append(cert.getCertificationName());
-                if (cert.getIssuingOrg() != null && !cert.getIssuingOrg().isEmpty()) {
-                    sb.append(" - ").append(cert.getIssuingOrg());
+                sb.append("- ").append(cert.getCertificationName());
+                if (cert.getIssuingOrg() != null && !cert.getIssuingOrg().trim().isEmpty()) {
+                    sb.append(" - ").append(cert.getIssuingOrg().trim());
                 }
                 if (cert.getIssueDate() != null) {
                     sb.append(" (").append(cert.getIssueDate()).append(")");
                 }
                 sb.append("\n");
+                if (cert.getCredentialUrl() != null && !cert.getCredentialUrl().trim().isEmpty()) {
+                    sb.append("   Credential URL: ").append(cert.getCredentialUrl().trim()).append("\n");
+                }
             }
         }
 
