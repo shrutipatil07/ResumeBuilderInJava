@@ -9,5 +9,6 @@ package com.resumegenerator.resume;
 public enum TemplateType {
     CLASSIC,
     MODERN,
-    MINIMAL
+    MINIMAL,
+    ATS
 }

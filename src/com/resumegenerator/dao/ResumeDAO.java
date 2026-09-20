@@ -42,6 +42,9 @@ public class ResumeDAO {
     private static final String DELETE_RESUME_SQL =
         "DELETE FROM resumes WHERE resume_id = ? AND user_id = ?";
 
+    private static final String INSERT_GENERATED_RESUME_SQL =
+        "INSERT INTO generated_resumes (resume_id, file_path, file_format) VALUES (?, ?, ?)";
+
     // Child table insert statements
     private static final String INSERT_EDUCATION_SQL =
         "INSERT INTO education (resume_id, institution, degree, field_of_study, start_year, end_year, grade, display_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
@@ -682,6 +685,39 @@ public class ResumeDAO {
                     resume.addCertification(cert);
                 }
             }
+        }
+    }
+
+    /**
+     * Records a generated PDF entry into the 'generated_resumes' table.
+     *
+     * @param resumeId primary key of the resume
+     * @param filePath destination file path of the generated PDF
+     * @param format file format string (default 'PDF')
+     * @return true if logged successfully
+     * @throws SQLException on database error
+     */
+    public boolean recordGeneratedResume(int resumeId, String filePath, String format) throws SQLException {
+        if (resumeId <= 0 || filePath == null || filePath.trim().isEmpty()) {
+            return false;
+        }
+
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+
+        try {
+            conn = DatabaseManager.getConnection();
+            pstmt = conn.prepareStatement(INSERT_GENERATED_RESUME_SQL);
+            pstmt.setInt(1, resumeId);
+            pstmt.setString(2, filePath.trim());
+            pstmt.setString(3, format != null ? format.trim().toUpperCase() : "PDF");
+
+            int affected = pstmt.executeUpdate();
+            return affected > 0;
+
+        } finally {
+            if (pstmt != null) { try { pstmt.close(); } catch (SQLException ignored) {} }
+            DatabaseManager.closeConnection(conn);
         }
     }
 }

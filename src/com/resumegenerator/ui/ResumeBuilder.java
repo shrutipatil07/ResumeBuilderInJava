@@ -114,11 +114,12 @@ public class ResumeBuilder extends JFrame {
         row++;
         gbc.gridx = 0; gbc.gridy = row; basicPanel.add(new JLabel("Template:"), gbc);
         gbc.gridx = 1;
-        templateComboBox = new JComboBox<>(new String[]{"Classic", "Modern", "Minimal"});
+        templateComboBox = new JComboBox<>(new String[]{"Classic", "Modern", "Minimal", "ATS"});
         templateComboBox.addActionListener(e -> {
             String choice = (String) templateComboBox.getSelectedItem();
             if ("Modern".equals(choice)) selectedTemplateType = TemplateType.MODERN;
             else if ("Minimal".equals(choice)) selectedTemplateType = TemplateType.MINIMAL;
+            else if ("ATS".equals(choice)) selectedTemplateType = TemplateType.ATS;
             else selectedTemplateType = TemplateType.CLASSIC;
         });
         basicPanel.add(templateComboBox, gbc);
@@ -284,6 +285,7 @@ public class ResumeBuilder extends JFrame {
             selectedTemplateType = resume.getTemplateType();
             if (selectedTemplateType == TemplateType.MODERN) templateComboBox.setSelectedItem("Modern");
             else if (selectedTemplateType == TemplateType.MINIMAL) templateComboBox.setSelectedItem("Minimal");
+            else if (selectedTemplateType == TemplateType.ATS) templateComboBox.setSelectedItem("ATS");
             else templateComboBox.setSelectedItem("Classic");
         }
 

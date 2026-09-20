@@ -1,135 +1,174 @@
 package com.resumegenerator.resume;
 
+import com.itextpdf.text.*;
+import com.itextpdf.text.pdf.PdfWriter;
+import com.resumegenerator.export.PDFHelper;
+import com.resumegenerator.model.Resume;
 import com.resumegenerator.model.*;
 
-import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
 
+/**
+ * ClassicTemplate — Professional 1-column visual PDF template layout.
+ *
+ * Characteristics:
+ * - Centered dark navy header with contact details and horizontal divider
+ * - Bold section headers with dark blue line dividers
+ * - Clean typographic hierarchy and bulleted descriptions
+ */
 public class ClassicTemplate implements ResumeTemplate {
 
     @Override
-    public String render(com.resumegenerator.model.Resume resume) {
-        StringBuilder sb = new StringBuilder();
+    public void renderPDF(Resume resume, Document document, PdfWriter writer) throws Exception {
         User user = resume.getUser();
 
-        sb.append("=========================================\n");
-        sb.append(user != null && user.getName() != null ? user.getName() : "N/A").append("\n");
-        sb.append("=========================================\n");
+        // 1. Header (Centered Name & Contact Details)
+        String name = user != null && user.getName() != null ? user.getName() : "Professional Resume";
+        Paragraph nameP = new Paragraph(PDFHelper.sanitizeText(name), PDFHelper.FONT_HEADER_NAME_LARGE);
+        nameP.setAlignment(Element.ALIGN_CENTER);
+        nameP.setSpacingAfter(4f);
+        document.add(nameP);
+
+        // Contact info line
+        StringBuilder contactStr = new StringBuilder();
         if (user != null) {
-            if (user.getEmail() != null) sb.append("Email: ").append(user.getEmail()).append("\n");
-            if (user.getPhone() != null) sb.append("Phone: ").append(user.getPhone()).append("\n");
+            if (user.getEmail() != null && !user.getEmail().trim().isEmpty()) {
+                contactStr.append(user.getEmail().trim());
+            }
+            if (user.getPhone() != null && !user.getPhone().trim().isEmpty()) {
+                if (contactStr.length() > 0) contactStr.append("  |  ");
+                contactStr.append(user.getPhone().trim());
+            }
         }
-        sb.append("\n");
+        if (contactStr.length() > 0) {
+            Paragraph contactP = new Paragraph(PDFHelper.sanitizeText(contactStr.toString()), PDFHelper.FONT_CONTACT);
+            contactP.setAlignment(Element.ALIGN_CENTER);
+            contactP.setSpacingAfter(8f);
+            document.add(contactP);
+        }
 
+        // Header Divider Line
+        PDFHelper.addSectionHeading(document, "", null, PDFHelper.COLOR_PRIMARY_NAVY);
+
+        // 2. Objective
         if (resume.getObjective() != null && !resume.getObjective().trim().isEmpty()) {
-            sb.append("OBJECTIVE\n");
-            sb.append("---------\n");
-            sb.append(resume.getObjective()).append("\n\n");
+            PDFHelper.addSectionHeading(document, "Professional Objective", PDFHelper.FONT_SECTION_CLASSIC, PDFHelper.COLOR_PRIMARY_NAVY);
+            Paragraph objP = new Paragraph(PDFHelper.sanitizeText(resume.getObjective().trim()), PDFHelper.FONT_BODY);
+            objP.setSpacingAfter(6f);
+            document.add(objP);
         }
 
-        List<Education> eduList = resume.getEducationList().stream()
-                .sorted(Comparator.comparingInt(Education::getDisplayOrder))
-                .collect(Collectors.toList());
-        if (!eduList.isEmpty()) {
-            sb.append("EDUCATION\n");
-            sb.append("---------\n");
+        // 3. Education
+        List<Education> eduList = resume.getEducationList();
+        if (eduList != null && !eduList.isEmpty()) {
+            PDFHelper.addSectionHeading(document, "Education", PDFHelper.FONT_SECTION_CLASSIC, PDFHelper.COLOR_PRIMARY_NAVY);
             for (Education edu : eduList) {
-                sb.append("- ").append(edu.getDegree());
+                StringBuilder title = new StringBuilder();
+                title.append(edu.getDegree());
                 if (edu.getFieldOfStudy() != null && !edu.getFieldOfStudy().trim().isEmpty()) {
-                    sb.append(" in ").append(edu.getFieldOfStudy().trim());
+                    title.append(" in ").append(edu.getFieldOfStudy().trim());
                 }
-                sb.append(" - ").append(edu.getInstitution());
-                if (edu.getStartYear() > 0) {
-                    String endStr = (edu.getEndYear() != null && edu.getEndYear() > 0) ? String.valueOf(edu.getEndYear()) : "Present";
-                    sb.append(" (").append(edu.getStartYear()).append(" - ").append(endStr).append(")");
-                }
+                title.append(" - ").append(edu.getInstitution());
+
+                String dateStr = edu.getStartYear() + " - " + (edu.getEndYear() != null ? edu.getEndYear() : "Present");
+                Paragraph eduP = new Paragraph(PDFHelper.sanitizeText(title.toString()), PDFHelper.FONT_TITLE_BOLD);
+                document.add(eduP);
+
+                StringBuilder sub = new StringBuilder();
+                sub.append("Dates: ").append(dateStr);
                 if (edu.getGrade() != null && !edu.getGrade().trim().isEmpty()) {
-                    sb.append(" [Grade: ").append(edu.getGrade().trim()).append("]");
+                    sub.append("  |  Grade: ").append(edu.getGrade().trim());
                 }
-                sb.append("\n");
+                Paragraph subP = new Paragraph(PDFHelper.sanitizeText(sub.toString()), PDFHelper.FONT_SUBTITLE);
+                subP.setSpacingAfter(4f);
+                document.add(subP);
             }
-            sb.append("\n");
         }
 
-        List<Skill> skillList = resume.getSkillList().stream()
-                .sorted(Comparator.comparingInt(Skill::getDisplayOrder))
-                .collect(Collectors.toList());
-        if (!skillList.isEmpty()) {
-            sb.append("SKILLS\n");
-            sb.append("------\n");
-            String skillsFormatted = skillList.stream()
-                    .map(Skill::getFormattedSkill)
-                    .collect(Collectors.joining(", "));
-            sb.append(skillsFormatted).append("\n\n");
+        // 4. Skills
+        List<Skill> skillList = resume.getSkillList();
+        if (skillList != null && !skillList.isEmpty()) {
+            PDFHelper.addSectionHeading(document, "Technical Skills", PDFHelper.FONT_SECTION_CLASSIC, PDFHelper.COLOR_PRIMARY_NAVY);
+            StringBuilder skillsStr = new StringBuilder();
+            for (int i = 0; i < skillList.size(); i++) {
+                Skill s = skillList.get(i);
+                skillsStr.append(s.getSkillName());
+                if (s.getProficiencyLevel() != null) {
+                    skillsStr.append(" (").append(s.getProficiencyLevel().name()).append(")");
+                }
+                if (i < skillList.size() - 1) skillsStr.append(", ");
+            }
+            Paragraph skP = new Paragraph(PDFHelper.sanitizeText(skillsStr.toString()), PDFHelper.FONT_BODY);
+            skP.setSpacingAfter(6f);
+            document.add(skP);
         }
 
-        List<Experience> expList = resume.getExperienceList().stream()
-                .sorted(Comparator.comparingInt(Experience::getDisplayOrder))
-                .collect(Collectors.toList());
-        if (!expList.isEmpty()) {
-            sb.append("EXPERIENCE\n");
-            sb.append("----------\n");
+        // 5. Work Experience
+        List<Experience> expList = resume.getExperienceList();
+        if (expList != null && !expList.isEmpty()) {
+            PDFHelper.addSectionHeading(document, "Work Experience", PDFHelper.FONT_SECTION_CLASSIC, PDFHelper.COLOR_PRIMARY_NAVY);
             for (Experience exp : expList) {
-                sb.append("- ").append(exp.getJobTitle()).append(" at ").append(exp.getCompanyName());
+                String header = exp.getJobTitle() + " - " + exp.getCompanyName();
                 if (exp.getLocation() != null && !exp.getLocation().trim().isEmpty()) {
-                    sb.append(" (").append(exp.getLocation().trim()).append(")");
+                    header += " (" + exp.getLocation().trim() + ")";
                 }
-                if (exp.getStartDate() != null) {
-                    String endStr = (exp.getEndDate() != null) ? exp.getEndDate().toString() : "Present";
-                    sb.append(" [").append(exp.getStartDate()).append(" - ").append(endStr).append("]");
-                }
-                sb.append("\n");
+                Paragraph expP = new Paragraph(PDFHelper.sanitizeText(header), PDFHelper.FONT_TITLE_BOLD);
+                document.add(expP);
+
+                String dateStr = PDFHelper.formatDateRange(exp.getStartDate(), exp.getEndDate());
+                Paragraph dateP = new Paragraph(PDFHelper.sanitizeText(dateStr), PDFHelper.FONT_SUBTITLE);
+                dateP.setSpacingAfter(2f);
+                document.add(dateP);
+
                 if (exp.getDescription() != null && !exp.getDescription().trim().isEmpty()) {
-                    sb.append("   ").append(exp.getDescription().trim()).append("\n");
+                    PDFHelper.addBulletPoint(document, exp.getDescription().trim(), PDFHelper.FONT_BODY);
                 }
+                document.add(new Paragraph(" ", FontFactory.getFont(FontFactory.HELVETICA, 3)));
             }
-            sb.append("\n");
         }
 
-        List<Project> projList = resume.getProjectList().stream()
-                .sorted(Comparator.comparingInt(Project::getDisplayOrder))
-                .collect(Collectors.toList());
-        if (!projList.isEmpty()) {
-            sb.append("PROJECTS\n");
-            sb.append("--------\n");
+        // 6. Projects
+        List<Project> projList = resume.getProjectList();
+        if (projList != null && !projList.isEmpty()) {
+            PDFHelper.addSectionHeading(document, "Projects", PDFHelper.FONT_SECTION_CLASSIC, PDFHelper.COLOR_PRIMARY_NAVY);
             for (Project proj : projList) {
-                sb.append("- ").append(proj.getProjectName());
-                if (proj.getTechStack() != null && !proj.getTechStack().trim().isEmpty()) {
-                    sb.append(" (").append(proj.getTechStack().trim()).append(")");
-                }
-                sb.append("\n");
-                if (proj.getDescription() != null && !proj.getDescription().trim().isEmpty()) {
-                    sb.append("   ").append(proj.getDescription().trim()).append("\n");
-                }
+                Paragraph pHeader = new Paragraph(PDFHelper.sanitizeText(proj.getProjectName()), PDFHelper.FONT_TITLE_BOLD);
                 if (proj.getProjectUrl() != null && !proj.getProjectUrl().trim().isEmpty()) {
-                    sb.append("   URL: ").append(proj.getProjectUrl().trim()).append("\n");
+                    pHeader.add(new Chunk("  "));
+                    pHeader.add(PDFHelper.createLinkChunk("[URL]", proj.getProjectUrl().trim(), PDFHelper.FONT_LINK));
                 }
+                document.add(pHeader);
+
+                if (proj.getTechStack() != null && !proj.getTechStack().trim().isEmpty()) {
+                    Paragraph techP = new Paragraph(PDFHelper.sanitizeText("Technologies: " + proj.getTechStack().trim()), PDFHelper.FONT_SUBTITLE);
+                    techP.setSpacingAfter(2f);
+                    document.add(techP);
+                }
+
+                if (proj.getDescription() != null && !proj.getDescription().trim().isEmpty()) {
+                    PDFHelper.addBulletPoint(document, proj.getDescription().trim(), PDFHelper.FONT_BODY);
+                }
+                document.add(new Paragraph(" ", FontFactory.getFont(FontFactory.HELVETICA, 3)));
             }
-            sb.append("\n");
         }
 
-        List<Certification> certList = resume.getCertificationList().stream()
-                .sorted(Comparator.comparingInt(Certification::getDisplayOrder))
-                .collect(Collectors.toList());
-        if (!certList.isEmpty()) {
-            sb.append("CERTIFICATIONS\n");
-            sb.append("--------------\n");
+        // 7. Certifications
+        List<Certification> certList = resume.getCertificationList();
+        if (certList != null && !certList.isEmpty()) {
+            PDFHelper.addSectionHeading(document, "Certifications", PDFHelper.FONT_SECTION_CLASSIC, PDFHelper.COLOR_PRIMARY_NAVY);
             for (Certification cert : certList) {
-                sb.append("- ").append(cert.getCertificationName());
-                if (cert.getIssuingOrg() != null && !cert.getIssuingOrg().trim().isEmpty()) {
-                    sb.append(" - ").append(cert.getIssuingOrg().trim());
-                }
+                String certStr = cert.getCertificationName() + " - " + cert.getIssuingOrg();
                 if (cert.getIssueDate() != null) {
-                    sb.append(" (").append(cert.getIssueDate()).append(")");
+                    certStr += " (" + PDFHelper.formatDate(cert.getIssueDate()) + ")";
                 }
-                sb.append("\n");
+                Paragraph certP = new Paragraph(PDFHelper.sanitizeText(certStr), PDFHelper.FONT_BODY);
                 if (cert.getCredentialUrl() != null && !cert.getCredentialUrl().trim().isEmpty()) {
-                    sb.append("   Credential URL: ").append(cert.getCredentialUrl().trim()).append("\n");
+                    certP.add(new Chunk("  "));
+                    certP.add(PDFHelper.createLinkChunk("[Verify Credential]", cert.getCredentialUrl().trim(), PDFHelper.FONT_LINK));
                 }
+                certP.setSpacingAfter(3f);
+                document.add(certP);
             }
         }
-
-        return sb.toString();
     }
 }

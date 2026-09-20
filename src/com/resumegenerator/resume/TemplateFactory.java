@@ -1,19 +1,14 @@
 package com.resumegenerator.resume;
 
-// ---------------------------------------------------------------
-// TemplateFactory — the single place responsible for turning a
-// TemplateType into a concrete ResumeTemplate instance.
-//
-// TemplateType  →  TemplateFactory  →  ResumeTemplate
-//
-// This is the only class in the application that is allowed to
-// know about ClassicTemplate / ModernTemplate / MinimalTemplate
-// by name. Everything else (UI, Resume, PDFGenerator) only ever
-// deals in TemplateType and ResumeTemplate.
-// ---------------------------------------------------------------
+/**
+ * TemplateFactory — Strategy Factory mapping TemplateType enums to concrete ResumeTemplate instances.
+ */
 public class TemplateFactory {
 
     public static ResumeTemplate create(TemplateType type) {
+        if (type == null) {
+            return new ClassicTemplate();
+        }
         switch (type) {
             case CLASSIC:
                 return new ClassicTemplate();
@@ -21,10 +16,9 @@ public class TemplateFactory {
                 return new ModernTemplate();
             case MINIMAL:
                 return new MinimalTemplate();
+            case ATS:
+                return new ATSTemplate();
             default:
-                // Unreachable as long as TemplateType has no
-                // unhandled values, but required so the method
-                // compiles with a guaranteed return on every path.
                 throw new IllegalArgumentException("Unsupported TemplateType: " + type);
         }
     }
