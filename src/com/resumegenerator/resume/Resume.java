@@ -4,21 +4,37 @@ import com.resumegenerator.model.User;
 
 public abstract class Resume {
     protected User user;
-    protected ResumeTemplate template; // NEW — composed dependency, not inherited behavior
+    protected com.resumegenerator.model.Resume resumeAggregate;
+    protected ResumeTemplate template;
 
-    // Original constructor — preserved exactly as-is so FresherResume
-    // and ExperiencedResume compile and behave unchanged.
     public Resume(User user) {
         this.user = user;
+        this.resumeAggregate = new com.resumegenerator.model.Resume();
+        this.resumeAggregate.setUser(user);
     }
 
-    // NEW — constructor injection, for when a template is available upfront
+    public Resume(com.resumegenerator.model.Resume resumeAggregate) {
+        this.resumeAggregate = resumeAggregate;
+        if (resumeAggregate != null) {
+            this.user = resumeAggregate.getUser();
+        }
+    }
+
     public Resume(User user, ResumeTemplate template) {
         this.user = user;
         this.template = template;
+        this.resumeAggregate = new com.resumegenerator.model.Resume();
+        this.resumeAggregate.setUser(user);
     }
 
-    // NEW — allows attaching/swapping a template after construction
+    public Resume(com.resumegenerator.model.Resume resumeAggregate, ResumeTemplate template) {
+        this.resumeAggregate = resumeAggregate;
+        if (resumeAggregate != null) {
+            this.user = resumeAggregate.getUser();
+        }
+        this.template = template;
+    }
+
     public ResumeTemplate getTemplate() {
         return template;
     }
@@ -27,13 +43,19 @@ public abstract class Resume {
         this.template = template;
     }
 
-    // NEW — delegates rendering to whichever ResumeTemplate is attached.
-    // Resume still does no formatting itself; it just brokers the call.
+    public com.resumegenerator.model.Resume getResumeAggregate() {
+        return resumeAggregate;
+    }
+
     public String renderWithTemplate() {
         if (template == null) {
             throw new IllegalStateException("No ResumeTemplate set on this Resume.");
         }
-        return template.render(user);
+        if (resumeAggregate == null) {
+            resumeAggregate = new com.resumegenerator.model.Resume();
+            resumeAggregate.setUser(user);
+        }
+        return template.render(resumeAggregate);
     }
 
     public abstract String getFormattedResume();

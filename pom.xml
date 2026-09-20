@@ -67,6 +67,20 @@
             <version>0.4</version>
         </dependency>
 
+        <!--
+            Spring Boot Starter Web — provides:
+              • Embedded Tomcat server (no external server needed)
+              • @RestController / @RequestMapping annotations
+              • Jackson JSON serialization (auto-included)
+              • Spring MVC for handling HTTP requests
+            This is the foundation for the REST API layer.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>3.2.5</version>
+        </dependency>
+
     </dependencies>
 
     <!-- ========== Build Configuration ========== -->
@@ -134,6 +148,22 @@
                 <version>3.3.0</version>
                 <configuration>
                     <mainClass>com.resumegenerator.ResumeApp</mainClass>
+                </configuration>
+            </plugin>
+
+            <!--
+                Spring Boot Maven Plugin — enables:
+                  mvn spring-boot:run
+                to launch the REST API with embedded Tomcat.
+                mainClass points to the new Spring Boot entry point,
+                NOT ResumeApp (which launches Swing).
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <mainClass>com.resumegenerator.api.ResumeApiApplication</mainClass>
                 </configuration>
             </plugin>
 

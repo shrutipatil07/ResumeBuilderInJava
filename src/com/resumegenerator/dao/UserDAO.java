@@ -175,7 +175,22 @@ public class UserDAO {
     //   COMMIT
     // ===============================================================
     private static final String INSERT_RESUME_SQL =
-        "INSERT INTO resumes (user_id, title, resume_type, objective) VALUES (?, ?, ?, ?)";
+        "INSERT INTO resumes (user_id, title, resume_type, objective, template_type) VALUES (?, ?, ?, ?, ?)";
+
+    private static final String INSERT_EDUCATION_FULL_SQL =
+        "INSERT INTO education (resume_id, institution, degree, field_of_study, start_year, end_year, grade, display_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+
+    private static final String INSERT_RESUME_SKILL_FULL_SQL =
+        "INSERT INTO resume_skills (resume_id, skill_id, proficiency_level, display_order) VALUES (?, ?, ?, ?)";
+
+    private static final String INSERT_EXPERIENCE_FULL_SQL =
+        "INSERT INTO experience (resume_id, company_name, job_title, location, start_date, end_date, description, display_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+
+    private static final String INSERT_PROJECT_FULL_SQL =
+        "INSERT INTO projects (resume_id, project_name, description, tech_stack, project_url, display_order) VALUES (?, ?, ?, ?, ?, ?)";
+
+    private static final String INSERT_CERTIFICATION_FULL_SQL =
+        "INSERT INTO certifications (resume_id, certification_name, issuing_org, issue_date, credential_url, display_order) VALUES (?, ?, ?, ?, ?, ?)";
 
     // ===============================================================
     // SQL TEMPLATE — INSERT into education
@@ -338,85 +353,220 @@ public class UserDAO {
      * be used as the foreign key for education, skills, experience,
      * projects, and certifications when those DAOs are implemented.</p>
      *
-     * @param user the User object to persist
-     * @return the generated user_id (primary key), or -1 if the insert failed
-     * @throws SQLException if a database error occurs (triggers rollback)
+    /**
+     * Saves a new resume for an EXISTING user account (userId).
+     * Creates a new row in 'resumes' and populates child tables
+     * without inserting a new user account row.
+     *
+     * @param userId      the primary key of the logged-in user account
+     * @param resumeTitle the title for this resume version (e.g. "Java Developer Resume")
+     * @param user        the User object containing resume form details
+     * @return the generated resume_id
+     * @throws SQLException on database error
      */
-    public int save(User user) throws SQLException {
+    public int saveResumeForUser(int userId, String resumeTitle, User user) throws SQLException {
+        // Legacy bridge: construct a Resume aggregate from the flat User and delegate
+        com.resumegenerator.model.Resume resume = new com.resumegenerator.model.Resume();
+        resume.setUserId(userId);
+        resume.setTitle(resumeTitle != null && !resumeTitle.trim().isEmpty()
+            ? resumeTitle.trim()
+            : (user.getName() != null ? user.getName() + "'s Resume" : "Untitled Resume"));
+        resume.setResumeType(com.resumegenerator.model.ResumeType.FRESHER);
+        resume.setTemplateType(com.resumegenerator.resume.TemplateType.CLASSIC);
+        resume.setUser(user);
+        return saveResume(resume);
+    }
 
-        // -----------------------------------------------------------
-        // Declare all JDBC resources outside the try block so we
-        // can close them in the finally block regardless of outcome.
-        //
-        // We need PreparedStatements for each INSERT (users, resumes,
-        // education, skills, resume_skills, experience, projects,
-        // certifications) and ResultSets for generated keys.
-        // -----------------------------------------------------------
+    public java.util.List<String> getResumesForUser(int userId) throws SQLException {
+        java.util.List<String> resumeTitles = new java.util.ArrayList<>();
+        String sql = "SELECT resume_id, title FROM resumes WHERE user_id = ? ORDER BY created_at DESC";
+
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setInt(1, userId);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    resumeTitles.add(rs.getInt("resume_id") + ": " + rs.getString("title"));
+                }
+            }
+        }
+        return resumeTitles;
+    }
+
+    public int saveResume(com.resumegenerator.model.Resume resume) throws SQLException {
         Connection conn = null;
-        PreparedStatement userStmt = null;
         PreparedStatement resumeStmt = null;
-        PreparedStatement educationStmt = null;
+        PreparedStatement eduStmt = null;
         PreparedStatement skillStmt = null;
         PreparedStatement selectSkillStmt = null;
         PreparedStatement resumeSkillStmt = null;
-        PreparedStatement experienceStmt = null;
-        PreparedStatement projectStmt = null;
-        PreparedStatement certificationStmt = null;
-        ResultSet userKeys = null;
+        PreparedStatement expStmt = null;
+        PreparedStatement projStmt = null;
+        PreparedStatement certStmt = null;
         ResultSet resumeKeys = null;
         ResultSet skillIdRs = null;
 
         try {
             conn = DatabaseManager.getConnection();
-
-            // -------------------------------------------------------
-            // TRANSACTION STEP 1: Disable auto-commit
-            // -------------------------------------------------------
-            //
-            // By default, JDBC runs in AUTO-COMMIT mode: every
-            // single SQL statement is immediately committed to the
-            // database. This means if we INSERT into users and then
-            // the INSERT into resumes fails, the users row is already
-            // permanent — we can't undo it.
-            //
-            // conn.setAutoCommit(false) switches to MANUAL COMMIT:
-            //   • No statement is committed until we explicitly call
-            //     conn.commit()
-            //   • If anything fails, we call conn.rollback() to undo
-            //     ALL statements since setAutoCommit(false)
-            //
-            // This gives us ATOMICITY: both INSERTs succeed together
-            // or fail together. The database is never left in a
-            // half-saved state.
-            //
-            // WHAT WOULD GO WRONG WITHOUT A TRANSACTION?
-            //   1. INSERT INTO users → succeeds → user_id = 42
-            //   2. INSERT INTO resumes → fails (e.g., bad ENUM value)
-            //   Result: user_id 42 exists but has no resume.
-            //   The foreign key relationship is broken — orphan row.
-            //   With a transaction, step 1 is rolled back too.
-            // -------------------------------------------------------
             conn.setAutoCommit(false);
 
-            // -------------------------------------------------------
-            // TRANSACTION STEP 2: INSERT into users
-            // -------------------------------------------------------
+            resumeStmt = conn.prepareStatement(INSERT_RESUME_SQL, Statement.RETURN_GENERATED_KEYS);
+            resumeStmt.setInt(1, resume.getUserId());
+            resumeStmt.setString(2, resume.getTitle() != null ? resume.getTitle() : "Untitled Resume");
+            resumeStmt.setString(3, resume.getResumeType() != null ? resume.getResumeType().name() : "FRESHER");
+            if (resume.getObjective() != null && !resume.getObjective().isEmpty()) {
+                resumeStmt.setString(4, resume.getObjective());
+            } else {
+                resumeStmt.setNull(4, java.sql.Types.VARCHAR);
+            }
+            resumeStmt.setString(5, resume.getTemplateType() != null ? resume.getTemplateType().name() : "CLASSIC");
+
+            resumeStmt.executeUpdate();
+            resumeKeys = resumeStmt.getGeneratedKeys();
+            int generatedResumeId = -1;
+            if (resumeKeys.next()) {
+                generatedResumeId = resumeKeys.getInt(1);
+            }
+            if (generatedResumeId == -1) {
+                conn.rollback();
+                return -1;
+            }
+            resume.setResumeId(generatedResumeId);
+
+            if (resume.getEducationList() != null && !resume.getEducationList().isEmpty()) {
+                eduStmt = conn.prepareStatement(INSERT_EDUCATION_FULL_SQL);
+                for (com.resumegenerator.model.Education edu : resume.getEducationList()) {
+                    eduStmt.setInt(1, generatedResumeId);
+                    eduStmt.setString(2, edu.getInstitution() != null ? edu.getInstitution() : "Not specified");
+                    eduStmt.setString(3, edu.getDegree() != null ? edu.getDegree() : "Not specified");
+                    eduStmt.setString(4, edu.getFieldOfStudy());
+                    eduStmt.setInt(5, edu.getStartYear() > 0 ? edu.getStartYear() : java.util.Calendar.getInstance().get(java.util.Calendar.YEAR));
+                    if (edu.getEndYear() != null) eduStmt.setInt(6, edu.getEndYear()); else eduStmt.setNull(6, java.sql.Types.INTEGER);
+                    eduStmt.setString(7, edu.getGrade());
+                    eduStmt.setInt(8, edu.getDisplayOrder());
+                    eduStmt.executeUpdate();
+                }
+            }
+
+            if (resume.getSkillList() != null && !resume.getSkillList().isEmpty()) {
+                skillStmt = conn.prepareStatement(INSERT_SKILL_SQL);
+                selectSkillStmt = conn.prepareStatement(SELECT_SKILL_ID_SQL);
+                resumeSkillStmt = conn.prepareStatement(INSERT_RESUME_SKILL_FULL_SQL);
+
+                for (com.resumegenerator.model.Skill skill : resume.getSkillList()) {
+                    if (skill.getSkillName() == null || skill.getSkillName().trim().isEmpty()) continue;
+                    String sName = skill.getSkillName().trim();
+                    skillStmt.setString(1, sName);
+                    skillStmt.executeUpdate();
+
+                    selectSkillStmt.setString(1, sName);
+                    skillIdRs = selectSkillStmt.executeQuery();
+                    if (skillIdRs.next()) {
+                        int skillId = skillIdRs.getInt(1);
+                        skill.setSkillId(skillId);
+                        resumeSkillStmt.setInt(1, generatedResumeId);
+                        resumeSkillStmt.setInt(2, skillId);
+                        if (skill.getProficiencyLevel() != null) resumeSkillStmt.setString(3, skill.getProficiencyLevel().name());
+                        else resumeSkillStmt.setNull(3, java.sql.Types.VARCHAR);
+                        resumeSkillStmt.setInt(4, skill.getDisplayOrder());
+                        resumeSkillStmt.executeUpdate();
+                    }
+                    if (skillIdRs != null) { skillIdRs.close(); skillIdRs = null; }
+                }
+            }
+
+            if (resume.getExperienceList() != null && !resume.getExperienceList().isEmpty()) {
+                expStmt = conn.prepareStatement(INSERT_EXPERIENCE_FULL_SQL);
+                for (com.resumegenerator.model.Experience exp : resume.getExperienceList()) {
+                    expStmt.setInt(1, generatedResumeId);
+                    expStmt.setString(2, exp.getCompanyName() != null ? exp.getCompanyName() : "Not specified");
+                    expStmt.setString(3, exp.getJobTitle() != null ? exp.getJobTitle() : "Not specified");
+                    expStmt.setString(4, exp.getLocation());
+                    expStmt.setDate(5, exp.getStartDate() != null ? java.sql.Date.valueOf(exp.getStartDate()) : new java.sql.Date(System.currentTimeMillis()));
+                    if (exp.getEndDate() != null) expStmt.setDate(6, java.sql.Date.valueOf(exp.getEndDate())); else expStmt.setNull(6, java.sql.Types.DATE);
+                    expStmt.setString(7, exp.getDescription());
+                    expStmt.setInt(8, exp.getDisplayOrder());
+                    expStmt.executeUpdate();
+                }
+            }
+
+            if (resume.getProjectList() != null && !resume.getProjectList().isEmpty()) {
+                projStmt = conn.prepareStatement(INSERT_PROJECT_FULL_SQL);
+                for (com.resumegenerator.model.Project proj : resume.getProjectList()) {
+                    projStmt.setInt(1, generatedResumeId);
+                    projStmt.setString(2, proj.getProjectName() != null ? proj.getProjectName() : "Untitled Project");
+                    projStmt.setString(3, proj.getDescription());
+                    projStmt.setString(4, proj.getTechStack());
+                    projStmt.setString(5, proj.getProjectUrl());
+                    projStmt.setInt(6, proj.getDisplayOrder());
+                    projStmt.executeUpdate();
+                }
+            }
+
+            if (resume.getCertificationList() != null && !resume.getCertificationList().isEmpty()) {
+                certStmt = conn.prepareStatement(INSERT_CERTIFICATION_FULL_SQL);
+                for (com.resumegenerator.model.Certification cert : resume.getCertificationList()) {
+                    certStmt.setInt(1, generatedResumeId);
+                    certStmt.setString(2, cert.getCertificationName() != null ? cert.getCertificationName() : "Untitled Certification");
+                    certStmt.setString(3, cert.getIssuingOrg());
+                    if (cert.getIssueDate() != null) certStmt.setDate(4, java.sql.Date.valueOf(cert.getIssueDate())); else certStmt.setNull(4, java.sql.Types.DATE);
+                    certStmt.setString(5, cert.getCredentialUrl());
+                    certStmt.setInt(6, cert.getDisplayOrder());
+                    certStmt.executeUpdate();
+                }
+            }
+
+            conn.commit();
+            System.out.println("[UserDAO] Structured Resume aggregate saved for user_id: " + resume.getUserId() + " with resume_id: " + generatedResumeId);
+            return generatedResumeId;
+
+        } catch (SQLException ex) {
+            if (conn != null) { try { conn.rollback(); } catch (SQLException ignored) {} }
+            throw ex;
+        } finally {
+            if (skillIdRs != null) { try { skillIdRs.close(); } catch (SQLException ignored) {} }
+            if (resumeKeys != null) { try { resumeKeys.close(); } catch (SQLException ignored) {} }
+            if (certStmt != null) { try { certStmt.close(); } catch (SQLException ignored) {} }
+            if (projStmt != null) { try { projStmt.close(); } catch (SQLException ignored) {} }
+            if (expStmt != null) { try { expStmt.close(); } catch (SQLException ignored) {} }
+            if (resumeSkillStmt != null) { try { resumeSkillStmt.close(); } catch (SQLException ignored) {} }
+            if (selectSkillStmt != null) { try { selectSkillStmt.close(); } catch (SQLException ignored) {} }
+            if (skillStmt != null) { try { skillStmt.close(); } catch (SQLException ignored) {} }
+            if (eduStmt != null) { try { eduStmt.close(); } catch (SQLException ignored) {} }
+            if (resumeStmt != null) { try { resumeStmt.close(); } catch (SQLException ignored) {} }
+        }
+    }
+
+    public int saveResumeForUser(int userId, String title, com.resumegenerator.model.Resume resume) throws SQLException {
+        resume.setUserId(userId);
+        if (title != null && !title.isEmpty()) {
+            resume.setTitle(title);
+        }
+        return saveResume(resume);
+    }
+
+    public int save(User user) throws SQLException {
+        if (user.getUserId() > 0) {
+            return user.getUserId();
+        }
+
+        Connection conn = null;
+        PreparedStatement userStmt = null;
+        ResultSet userKeys = null;
+
+        try {
+            conn = DatabaseManager.getConnection();
             userStmt = conn.prepareStatement(
                 INSERT_USER_SQL,
                 Statement.RETURN_GENERATED_KEYS
             );
 
-            userStmt.setString(1, user.getName());   // ?1 → full_name
-            userStmt.setString(2, user.getEmail());   // ?2 → email
-            userStmt.setString(3, user.getPhone());   // ?3 → phone
+            userStmt.setString(1, user.getName());
+            userStmt.setString(2, user.getEmail());
+            userStmt.setString(3, user.getPhone());
 
             int userRowsAffected = userStmt.executeUpdate();
 
-            // -------------------------------------------------------
-            // Retrieve the auto-generated user_id.
-            // We need it immediately for the resumes INSERT (as the
-            // foreign key) and to return to the caller.
-            // -------------------------------------------------------
             int generatedUserId = -1;
             if (userRowsAffected > 0) {
                 userKeys = userStmt.getGeneratedKeys();
@@ -425,381 +575,11 @@ public class UserDAO {
                 }
             }
 
-            if (generatedUserId == -1) {
-                // User INSERT didn't produce a key — something is
-                // very wrong. Roll back and signal failure.
-                conn.rollback();
-                return -1;
-            }
-
-            // -------------------------------------------------------
-            // TRANSACTION STEP 3: INSERT into resumes
-            // -------------------------------------------------------
-            //
-            // Now we use the user_id we just obtained as the foreign
-            // key in the resumes table. This is exactly WHY we
-            // retrieved the generated key in Step 2.
-            //
-            // Column mapping:
-            //   ?1 → user_id       ← generatedUserId
-            //   ?2 → title         ← derived from user's name
-            //   ?3 → resume_type   ← 'EXPERIENCED' or 'FRESHER'
-            //   ?4 → objective     ← user.getObjective()
-            // -------------------------------------------------------
-            resumeStmt = conn.prepareStatement(
-                INSERT_RESUME_SQL,
-                Statement.RETURN_GENERATED_KEYS
-            );
-
-            resumeStmt.setInt(1, generatedUserId);
-
-            // -------------------------------------------------------
-            // Title: We derive a default title from the user's name.
-            // Example: "John Doe's Resume"
-            //
-            // In the future, the UI could have a dedicated title
-            // field, but for now we auto-generate it since the
-            // schema requires a non-null title.
-            // -------------------------------------------------------
-            resumeStmt.setString(2, user.getName() + "'s Resume");
-
-            // -------------------------------------------------------
-            // Resume type: The User model stores experienceYears.
-            //   • experienceYears > 0  → 'EXPERIENCED'
-            //   • experienceYears == 0 → 'FRESHER'
-            //
-            // This maps directly to the ENUM('FRESHER','EXPERIENCED')
-            // column in the resumes table.
-            // -------------------------------------------------------
-            String resumeType = user.getExperienceYears() > 0
-                ? "EXPERIENCED" : "FRESHER";
-            resumeStmt.setString(3, resumeType);
-
-            // -------------------------------------------------------
-            // Objective: The career objective / summary statement.
-            // This can be NULL in the schema, so an empty string
-            // from the form is acceptable.
-            // -------------------------------------------------------
-            String objective = user.getObjective();
-            if (objective != null && !objective.trim().isEmpty()) {
-                resumeStmt.setString(4, objective);
-            } else {
-                resumeStmt.setNull(4, java.sql.Types.VARCHAR);
-            }
-
-            resumeStmt.executeUpdate();
-
-            // -------------------------------------------------------
-            // Retrieve the auto-generated resume_id.
-            //
-            // We don't return this to the UI (to avoid UI changes),
-            // but we print it so you can verify the INSERT worked
-            // and see the ID that future child-table DAOs will use.
-            // -------------------------------------------------------
-            resumeKeys = resumeStmt.getGeneratedKeys();
-            int generatedResumeId = -1;
-            if (resumeKeys.next()) {
-                generatedResumeId = resumeKeys.getInt(1);
-                System.out.println(
-                    "[UserDAO] Resume saved — resume_id: " + generatedResumeId
-                    + " (linked to user_id: " + generatedUserId + ")"
-                );
-            }
-
-            if (generatedResumeId == -1) {
-                // Resume INSERT didn't produce a key — roll back
-                // the users INSERT too and signal failure.
-                conn.rollback();
-                return -1;
-            }
-
-            // -------------------------------------------------------
-            // TRANSACTION STEP 4: INSERT into education
-            // -------------------------------------------------------
-            //
-            // The UI stores education as a single String (e.g.,
-            // "B.Tech Computer Science"). We store it in the 'degree'
-            // column and use defaults for the required columns that
-            // the UI doesn't collect separately.
-            //
-            // SKIP-IF-EMPTY: If the user left the education field
-            // blank, we don't insert a placeholder row — we simply
-            // skip this step. This avoids rows with only defaults
-            // and no meaningful data.
-            // -------------------------------------------------------
-            String education = user.getEducation();
-            if (education != null && !education.trim().isEmpty()) {
-                educationStmt = conn.prepareStatement(INSERT_EDUCATION_SQL);
-                educationStmt.setInt(1, generatedResumeId);        // ?1 → resume_id
-                educationStmt.setString(2, "Not specified");        // ?2 → institution (default)
-                educationStmt.setString(3, education.trim());      // ?3 → degree
-                int currentYear = Calendar.getInstance().get(Calendar.YEAR);
-                educationStmt.setInt(4, currentYear);               // ?4 → start_year (default)
-                educationStmt.executeUpdate();
-                System.out.println(
-                    "[UserDAO] Education saved for resume_id: " + generatedResumeId
-                );
-            }
-
-            // -------------------------------------------------------
-            // TRANSACTION STEP 5: INSERT into skills + resume_skills
-            // -------------------------------------------------------
-            //
-            // The UI stores skills as an ArrayList<String>, e.g.,
-            // ["Java", "MySQL", "Spring Boot"]. For each skill:
-            //
-            //   1. INSERT IGNORE into the skills master table
-            //      → creates the skill if it doesn't exist yet
-            //      → silently skips if it already exists (no error)
-            //
-            //   2. SELECT skill_id by name
-            //      → retrieves the ID whether we just created it
-            //        or it already existed
-            //
-            //   3. INSERT into resume_skills junction table
-            //      → links this resume to this skill
-            //      → display_order preserves the user's ordering
-            //
-            // WHY NOT LAST_INSERT_ID()?
-            //   INSERT IGNORE does NOT set LAST_INSERT_ID() when the
-            //   row already exists (it was a no-op). So we always
-            //   SELECT by name to reliably get the skill_id.
-            //
-            // SKIP-IF-EMPTY: If the skills list is null or contains
-            // only blank entries, we skip entirely.
-            // -------------------------------------------------------
-            ArrayList<String> skills = user.getSkills();
-            if (skills != null && !skills.isEmpty()) {
-                skillStmt = conn.prepareStatement(INSERT_SKILL_SQL);
-                selectSkillStmt = conn.prepareStatement(SELECT_SKILL_ID_SQL);
-                resumeSkillStmt = conn.prepareStatement(INSERT_RESUME_SKILL_SQL);
-
-                int displayOrder = 0;
-                for (String skillName : skills) {
-                    // Skip blank skill entries (e.g., trailing comma:
-                    // "Java, MySQL, " → ["Java", "MySQL", ""])
-                    if (skillName == null || skillName.trim().isEmpty()) {
-                        continue;
-                    }
-                    String trimmedSkill = skillName.trim();
-
-                    // Step 5a: INSERT IGNORE — create skill if new
-                    skillStmt.setString(1, trimmedSkill);
-                    skillStmt.executeUpdate();
-
-                    // Step 5b: SELECT — get the skill_id
-                    selectSkillStmt.setString(1, trimmedSkill);
-                    skillIdRs = selectSkillStmt.executeQuery();
-                    if (skillIdRs.next()) {
-                        int skillId = skillIdRs.getInt(1);
-
-                        // Step 5c: INSERT into junction table
-                        resumeSkillStmt.setInt(1, generatedResumeId);
-                        resumeSkillStmt.setInt(2, skillId);
-                        resumeSkillStmt.setInt(3, displayOrder);
-                        resumeSkillStmt.executeUpdate();
-
-                        displayOrder++;
-                    }
-                    // Close the ResultSet before the next iteration
-                    // to avoid resource leaks
-                    skillIdRs.close();
-                    skillIdRs = null;
-                }
-                System.out.println(
-                    "[UserDAO] " + displayOrder + " skill(s) saved for resume_id: "
-                    + generatedResumeId
-                );
-            }
-
-            // -------------------------------------------------------
-            // TRANSACTION STEP 6: INSERT into experience
-            // -------------------------------------------------------
-            //
-            // Same pattern as education — the UI gives us a single
-            // String, but the schema expects structured columns.
-            // We store the text in the 'description' column and use
-            // defaults for the NOT NULL columns (company_name,
-            // job_title, start_date).
-            //
-            // SKIP-IF-EMPTY: Only inserts if the experience field
-            // is non-blank. For fresher resumes, this field is
-            // typically disabled in the UI, so it will be empty.
-            // -------------------------------------------------------
-            String experience = user.getExperienceDetails();
-            if (experience != null && !experience.trim().isEmpty()) {
-                experienceStmt = conn.prepareStatement(INSERT_EXPERIENCE_SQL);
-                experienceStmt.setInt(1, generatedResumeId);       // ?1 → resume_id
-                experienceStmt.setString(2, "Not specified");       // ?2 → company_name (default)
-                experienceStmt.setString(3, "Not specified");       // ?3 → job_title (default)
-                experienceStmt.setDate(4,                           // ?4 → start_date (default: today)
-                    new java.sql.Date(System.currentTimeMillis()));
-                experienceStmt.setString(5, experience.trim());    // ?5 → description
-                experienceStmt.executeUpdate();
-                System.out.println(
-                    "[UserDAO] Experience saved for resume_id: " + generatedResumeId
-                );
-            }
-
-            // -------------------------------------------------------
-            // TRANSACTION STEP 7: INSERT into projects
-            // -------------------------------------------------------
-            //
-            // The projects table only requires resume_id and
-            // project_name as NOT NULL. The user's text maps
-            // directly to project_name — no defaults needed.
-            //
-            // SKIP-IF-EMPTY: Only inserts if the projects field
-            // is non-blank.
-            // -------------------------------------------------------
-            String projects = user.getProjects();
-            if (projects != null && !projects.trim().isEmpty()) {
-                projectStmt = conn.prepareStatement(INSERT_PROJECT_SQL);
-                projectStmt.setInt(1, generatedResumeId);          // ?1 → resume_id
-                projectStmt.setString(2, projects.trim());         // ?2 → project_name
-                projectStmt.executeUpdate();
-                System.out.println(
-                    "[UserDAO] Project saved for resume_id: " + generatedResumeId
-                );
-            }
-
-            // -------------------------------------------------------
-            // TRANSACTION STEP 8: INSERT into certifications
-            // -------------------------------------------------------
-            //
-            // Same as projects — only resume_id and
-            // certification_name are NOT NULL.
-            //
-            // SKIP-IF-EMPTY: Only inserts if the certifications
-            // field is non-blank.
-            // -------------------------------------------------------
-            String certifications = user.getCertifications();
-            if (certifications != null && !certifications.trim().isEmpty()) {
-                certificationStmt = conn.prepareStatement(INSERT_CERTIFICATION_SQL);
-                certificationStmt.setInt(1, generatedResumeId);          // ?1 → resume_id
-                certificationStmt.setString(2, certifications.trim());   // ?2 → certification_name
-                certificationStmt.executeUpdate();
-                System.out.println(
-                    "[UserDAO] Certification saved for resume_id: " + generatedResumeId
-                );
-            }
-
-            // -------------------------------------------------------
-            // TRANSACTION STEP 9: COMMIT
-            // -------------------------------------------------------
-            //
-            // conn.commit() makes ALL INSERTs permanent — users,
-            // resumes, education, skills, experience, projects, and
-            // certifications. Until this call, the rows are visible
-            // only to THIS connection (ISOLATION in ACID).
-            //
-            // If ANY of the 8 steps above threw a SQLException, we
-            // never reach this line — the catch block rolls back
-            // everything. This guarantees ATOMICITY: all tables are
-            // populated together or none are.
-            //
-            // After commit(), the data is DURABLE — it survives
-            // server crashes, power failures, etc. (the D in ACID).
-            // -------------------------------------------------------
-            conn.commit();
-            System.out.println(
-                "[UserDAO] Transaction committed — all tables saved for "
-                + "user_id: " + generatedUserId + ", resume_id: " + generatedResumeId
-            );
-
             return generatedUserId;
 
-        } catch (SQLException ex) {
-            // -------------------------------------------------------
-            // TRANSACTION ROLLBACK on failure
-            // -------------------------------------------------------
-            //
-            // If ANY SQL statement fails (users, resumes, education,
-            // skills, experience, projects, or certifications INSERT),
-            // we land here.
-            //
-            // conn.rollback() undoes ALL statements executed since
-            // setAutoCommit(false). This guarantees ATOMICITY:
-            //   • If the certifications INSERT failed, ALL previous
-            //     INSERTs (users, resumes, education, skills,
-            //     experience, projects) are undone too.
-            //   • The database is left in the exact state it was
-            //     in before save() was called.
-            //
-            // We then re-throw the exception so the UI layer can
-            // display the error message to the user.
-            // -------------------------------------------------------
-            System.err.println("[UserDAO] Transaction failed — rolling back all tables.");
-            if (conn != null) {
-                try {
-                    conn.rollback();
-                } catch (SQLException rollbackEx) {
-                    // Rollback itself failed — log it but still
-                    // throw the original exception so the caller
-                    // knows the save failed.
-                    rollbackEx.printStackTrace();
-                }
-            }
-            throw ex;
-
         } finally {
-            // -------------------------------------------------------
-            // Clean up ALL resources (ALWAYS runs)
-            // -------------------------------------------------------
-            //
-            // Close in REVERSE order of creation:
-            //   ResultSets → PreparedStatements → Connection
-            //
-            // We also restore auto-commit to its default (true)
-            // before closing. This is good practice in case the
-            // connection is returned to a pool instead of closed —
-            // the next user of the connection would otherwise
-            // inherit our manual-commit mode unexpectedly.
-            // -------------------------------------------------------
-
-            // Close ResultSets
-            if (skillIdRs != null) {
-                try { skillIdRs.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (resumeKeys != null) {
-                try { resumeKeys.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (userKeys != null) {
-                try { userKeys.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            // Close PreparedStatements (reverse order of creation)
-            if (certificationStmt != null) {
-                try { certificationStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (projectStmt != null) {
-                try { projectStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (experienceStmt != null) {
-                try { experienceStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (resumeSkillStmt != null) {
-                try { resumeSkillStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (selectSkillStmt != null) {
-                try { selectSkillStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (skillStmt != null) {
-                try { skillStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (educationStmt != null) {
-                try { educationStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (resumeStmt != null) {
-                try { resumeStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            if (userStmt != null) {
-                try { userStmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            // Restore auto-commit before closing (pool safety)
-            if (conn != null) {
-                try { conn.setAutoCommit(true); } catch (SQLException e) { e.printStackTrace(); }
-            }
-            // Close Connection
+            if (userKeys != null) { try { userKeys.close(); } catch (SQLException ignored) {} }
+            if (userStmt != null) { try { userStmt.close(); } catch (SQLException ignored) {} }
             DatabaseManager.closeConnection(conn);
         }
     }
@@ -965,14 +745,7 @@ public class UserDAO {
                 return new User(
                     name,                    // full_name
                     email,                   // email
-                    phone,                   // phone
-                    "",                      // education   (separate table)
-                    new ArrayList<>(),       // skills      (separate table)
-                    "",                      // experience  (separate table)
-                    "",                      // projects    (separate table)
-                    "",                      // certifications (separate table)
-                    "",                      // objective   (resumes table)
-                    0                        // experienceYears
+                    phone                    // phone
                 );
             }
 
@@ -1127,14 +900,7 @@ public class UserDAO {
                 User user = new User(
                     name,                    // full_name
                     email,                   // email
-                    phone,                   // phone
-                    "",                      // education   (separate table)
-                    new ArrayList<>(),       // skills      (separate table)
-                    "",                      // experience  (separate table)
-                    "",                      // projects    (separate table)
-                    "",                      // certifications (separate table)
-                    "",                      // objective   (resumes table)
-                    0                        // experienceYears
+                    phone                    // phone
                 );
 
                 users.add(user);

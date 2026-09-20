@@ -7,8 +7,6 @@ import com.resumegenerator.resume.Resume;
 
 public class PDFGenerator {
 
-    // Original overload — preserved unchanged so any existing caller
-    // that passes a raw string still works exactly as before.
     public static void createPDF(String content, String fileName) {
         try {
             Document document = new Document();
@@ -22,11 +20,18 @@ public class PDFGenerator {
         }
     }
 
-    // NEW overload — the template-aware path. PDFGenerator asks the
-    // Resume for its rendered content (which the Resume gets from
-    // its attached ResumeTemplate) instead of deciding formatting itself.
     public static void createPDF(Resume resume, String fileName) {
         String content = resume.renderWithTemplate();
-        createPDF(content, fileName); // reuse the same PDF-writing logic
+        createPDF(content, fileName);
+    }
+
+    public static void createPDF(com.resumegenerator.model.Resume resumeAggregate, String fileName) {
+        String content;
+        if (resumeAggregate.getTemplateType() != null) {
+            content = com.resumegenerator.resume.TemplateFactory.create(resumeAggregate.getTemplateType()).render(resumeAggregate);
+        } else {
+            content = new com.resumegenerator.resume.ClassicTemplate().render(resumeAggregate);
+        }
+        createPDF(content, fileName);
     }
 }

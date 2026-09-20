@@ -1,64 +1,42 @@
 package com.resumegenerator.ui;
 
-import com.resumegenerator.model.User;
-import com.resumegenerator.resume.Resume;
-import com.resumegenerator.resume.FresherResume;
-import com.resumegenerator.resume.ExperiencedResume;
-import com.resumegenerator.export.PDFGenerator;
+import com.resumegenerator.model.*;
+import com.resumegenerator.resume.ResumeTemplate;
 import com.resumegenerator.resume.TemplateType;
 import com.resumegenerator.resume.TemplateFactory;
-
-// ---------------------------------------------------------------
-// NEW IMPORT: UserDAO — our Data Access Object that knows how to
-// save a User to the MySQL 'users' table.
-// ---------------------------------------------------------------
+import com.resumegenerator.export.PDFGenerator;
 import com.resumegenerator.dao.UserDAO;
 
-// ---------------------------------------------------------------
-// NEW IMPORT: SQLException — checked exception that UserDAO.save()
-// can throw if the database is unreachable, the email already
-// exists (UNIQUE constraint), or any other SQL error occurs.
-// We catch it in the button's action listener.
-// ---------------------------------------------------------------
 import java.sql.SQLException;
-
-import java.util.ArrayList;
+import java.time.LocalDate;
+import java.util.Calendar;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.*;
 
 public class ResumeBuilder extends JFrame {
-    private JTextField nameField, emailField, phoneField, educationField, experienceField, projectsField, certificationsField, objectiveField, skillsField;
+    private JTextField resumeTitleField, nameField, emailField, phoneField, educationField, experienceField, projectsField, certificationsField, objectiveField, skillsField;
     private JCheckBox isExperienced;
     private JButton generateButton;
-    // NEW — the dropdown itself
     private JComboBox<String> templateComboBox;
-    // NEW — the selected value, stored as TemplateType (not a raw String)
-    private TemplateType selectedTemplateType = TemplateType.CLASSIC; // sensible default
-
-    // ---------------------------------------------------------------
-    // NEW FIELD: the "Save to Database" button.
-    // We declare it as a field (not a local variable) so it's
-    // accessible throughout the class — same pattern as generateButton.
-    // ---------------------------------------------------------------
+    private TemplateType selectedTemplateType = TemplateType.CLASSIC;
     private JButton saveButton;
+    private User currentUser;
 
     public ResumeBuilder() {
+        this(null);
+    }
+
+    public ResumeBuilder(User user) {
+        this.currentUser = user;
+
         setTitle("AI Resume Builder");
-        setSize(400, 550);
-        // ---------------------------------------------------------------
-        // CHANGED: GridLayout rows from 10 → 11
-        //
-        // GridLayout(rows, cols) divides the JFrame into a grid of
-        // equal-sized cells. We had 10 rows:
-        //   9 label+field pairs + 1 row for checkbox+generateButton
-        // Now we add 1 more row for the saveButton, making it 11.
-        //
-        // Each row has 2 columns (label | field), so the new button
-        // will occupy one cell in the 11th row.
-        // ---------------------------------------------------------------
-        setLayout(new GridLayout(12, 2));
+        setSize(420, 600);
+        setLayout(new GridLayout(13, 2));
+
+        add(new JLabel("Resume Title:"));
+        resumeTitleField = new JTextField(); add(resumeTitleField);
+        resumeTitleField.setText("Java Developer Resume");
 
         add(new JLabel("Name:"));
         nameField = new JTextField(); add(nameField);
@@ -69,6 +47,12 @@ public class ResumeBuilder extends JFrame {
         add(new JLabel("Phone:"));
         phoneField = new JTextField(); add(phoneField);
 
+        if (currentUser != null) {
+            if (currentUser.getName() != null) nameField.setText(currentUser.getName());
+            if (currentUser.getEmail() != null) emailField.setText(currentUser.getEmail());
+            if (currentUser.getPhone() != null) phoneField.setText(currentUser.getPhone());
+        }
+
         add(new JLabel("Education:"));
         educationField = new JTextField(); add(educationField);
 
@@ -77,7 +61,7 @@ public class ResumeBuilder extends JFrame {
 
         add(new JLabel("Experience:"));
         experienceField = new JTextField(); add(experienceField);
-        experienceField.setEnabled(false); // Disable initially
+        experienceField.setEnabled(false);
 
         add(new JLabel("Projects:"));
         projectsField = new JTextField(); add(projectsField);
@@ -88,14 +72,10 @@ public class ResumeBuilder extends JFrame {
         add(new JLabel("Objective:"));
         objectiveField = new JTextField(); add(objectiveField);
 
-        // Template selection row
         add(new JLabel("Template:"));
         templateComboBox = new JComboBox<>(new String[]{"Classic", "Modern", "Minimal"});
         add(templateComboBox);
 
-        // Updates selectedTemplateType whenever the user picks a
-        // different option, converting the JComboBox's String selection
-        // into the corresponding TemplateType enum value.
         templateComboBox.addActionListener(e -> {
             String choice = (String) templateComboBox.getSelectedItem();
             switch (choice) {
@@ -113,7 +93,6 @@ public class ResumeBuilder extends JFrame {
         isExperienced = new JCheckBox("Experienced?");
         add(isExperienced);
 
-        // Enable/Disable experience field based on checkbox
         isExperienced.addActionListener(e -> experienceField.setEnabled(isExperienced.isSelected()));
 
         generateButton = new JButton("Generate Resume");
@@ -121,153 +100,64 @@ public class ResumeBuilder extends JFrame {
 
         generateButton.addActionListener(e -> {
             if (validateInput()) {
-                ArrayList<String> skills = new ArrayList<>();
-                for (String skill : skillsField.getText().split(",")) {
-                    skills.add(skill.trim());
-                }
-
-                User user = new User(
-                        nameField.getText(),
-                        emailField.getText(),
-                        phoneField.getText(),
-                        educationField.getText(),
-                        skills,
-                        experienceField.getText(),
-                        projectsField.getText(),
-                        certificationsField.getText(),
-                        objectiveField.getText(),
-                        isExperienced.isSelected() ? 1 : 0
-                );
-
-                Resume resume = isExperienced.isSelected() ? new ExperiencedResume(user) : new FresherResume(user);
-                resume.setTemplate(TemplateFactory.create(selectedTemplateType));
+                com.resumegenerator.model.Resume resumeAggregate = buildResumeFromForm();
                 String fileName = "resume_" + selectedTemplateType.name().toLowerCase() + ".pdf";
-                PDFGenerator.createPDF(resume, fileName);
+                PDFGenerator.createPDF(resumeAggregate, fileName);
                 JOptionPane.showMessageDialog(null, "Resume PDF Generated: " + fileName);
             }
         });
 
-        // ===============================================================
-        // NEW: "Save to Database" button
-        // ===============================================================
-        //
-        // WHY A SEPARATE BUTTON?
-        //   The existing "Generate Resume" button creates a PDF.
-        //   Saving to the database is a different action — the user
-        //   might want to save their info without generating a PDF,
-        //   or generate a PDF without saving. Keeping them separate
-        //   follows the Single Responsibility Principle.
-        // ===============================================================
-
-        // ---------------------------------------------------------------
-        // We add an empty JLabel as a spacer in column 1 of row 11.
-        // This keeps the button aligned in column 2, matching the
-        // layout of the "Generate Resume" button above it.
-        // ---------------------------------------------------------------
         add(new JLabel(""));
 
         saveButton = new JButton("Save to Database");
         add(saveButton);
 
-        // ---------------------------------------------------------------
-        // ACTION LISTENER for "Save to Database"
-        //
-        // When the user clicks this button:
-        //   1. Validate input (reusing the same validateInput() method)
-        //   2. Build a User object from the form fields
-        //   3. Call UserDAO.save(user) to INSERT into MySQL
-        //   4. Show a success or error message
-        // ---------------------------------------------------------------
         saveButton.addActionListener(e -> {
-
-            // -----------------------------------------------------------
-            // Step 1: Reuse the existing validation.
-            // If any field is invalid, validateInput() shows an error
-            // dialog and returns false — we stop here.
-            // -----------------------------------------------------------
             if (!validateInput()) {
                 return;
             }
 
-            // -----------------------------------------------------------
-            // Step 2: Build the User object from form fields.
-            //
-            // This is the same User construction as the Generate
-            // button — we read each JTextField's text and create
-            // a User instance.
-            // -----------------------------------------------------------
-            ArrayList<String> skills = new ArrayList<>();
-            for (String skill : skillsField.getText().split(",")) {
-                skills.add(skill.trim());
+            String resumeTitle = resumeTitleField.getText().trim();
+            if (resumeTitle.isEmpty()) {
+                showError("Resume Title cannot be empty! (e.g. Java Developer Resume)");
+                return;
             }
 
-            User user = new User(
-                nameField.getText(),
-                emailField.getText(),
-                phoneField.getText(),
-                educationField.getText(),
-                skills,
-                experienceField.getText(),
-                projectsField.getText(),
-                certificationsField.getText(),
-                objectiveField.getText(),
-                isExperienced.isSelected() ? 1 : 0
-            );
+            com.resumegenerator.model.Resume resumeAggregate = buildResumeFromForm();
 
-            // -----------------------------------------------------------
-            // Step 3: Save to the database via UserDAO.
-            //
-            // UserDAO.save(user) can throw SQLException, so we wrap
-            // it in a try-catch. We do NOT declare 'throws SQLException'
-            // on the lambda because ActionListener.actionPerformed()
-            // does not allow checked exceptions in its signature.
-            //
-            // WHY TRY-CATCH HERE AND NOT IN THE DAO?
-            //   The DAO throws the exception UP because it doesn't
-            //   know how to display errors (it has no UI). The UI
-            //   catches it because it CAN show a dialog to the user.
-            //   This is proper layered architecture:
-            //     DAO → throws exception → UI → shows error dialog
-            // -----------------------------------------------------------
             try {
                 UserDAO userDAO = new UserDAO();
 
-                // -------------------------------------------------------
-                // userDAO.save(user) executes:
-                //   INSERT INTO users (full_name, email, phone)
-                //   VALUES (?, ?, ?)
-                //
-                // Returns the auto-generated user_id (primary key).
-                // We display it so the user knows their data was saved
-                // and can reference this ID later.
-                // -------------------------------------------------------
-                int generatedId = userDAO.save(user);
+                if (currentUser != null && currentUser.getUserId() > 0) {
+                    resumeAggregate.setUserId(currentUser.getUserId());
+                    int generatedResumeId = userDAO.saveResume(resumeAggregate);
 
-                JOptionPane.showMessageDialog(
-                    this,
-                    "User saved to database!\nGenerated User ID: " + generatedId,
-                    "Success",
-                    JOptionPane.INFORMATION_MESSAGE
-                );
+                    JOptionPane.showMessageDialog(
+                        this,
+                        "Resume saved successfully!\n" +
+                        "Resume Title: " + resumeTitle + "\n" +
+                        "Account User ID: " + currentUser.getUserId() + "\n" +
+                        "Generated Resume ID: " + generatedResumeId,
+                        "Success",
+                        JOptionPane.INFORMATION_MESSAGE
+                    );
+                } else {
+                    int generatedUserId = userDAO.save(resumeAggregate.getUser());
+                    resumeAggregate.setUserId(generatedUserId);
+                    int generatedResumeId = userDAO.saveResume(resumeAggregate);
+
+                    JOptionPane.showMessageDialog(
+                        this,
+                        "User & Resume saved to database!\nGenerated User ID: " + generatedUserId + "\nGenerated Resume ID: " + generatedResumeId,
+                        "Success",
+                        JOptionPane.INFORMATION_MESSAGE
+                    );
+                }
 
             } catch (SQLException ex) {
-                // -------------------------------------------------------
-                // Common reasons this catch block triggers:
-                //   • MySQL server is not running
-                //   • config.properties has wrong password
-                //   • Email already exists (UNIQUE constraint violation)
-                //   • The 'users' table doesn't exist yet
-                //
-                // ex.getMessage() gives a human-readable error from
-                // the MySQL driver (e.g., "Duplicate entry 'a@b.com'
-                // for key 'users.email'").
-                //
-                // ex.printStackTrace() prints the full stack trace
-                // to the console for debugging.
-                // -------------------------------------------------------
                 JOptionPane.showMessageDialog(
                     this,
-                    "Failed to save user: " + ex.getMessage(),
+                    "Failed to save resume: " + ex.getMessage(),
                     "Database Error",
                     JOptionPane.ERROR_MESSAGE
                 );
@@ -276,12 +166,53 @@ public class ResumeBuilder extends JFrame {
         });
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        // ---------------------------------------------------------------
-        // setLocationRelativeTo(null) centers the window on the screen
-        // instead of appearing at the top-left corner.
-        // ---------------------------------------------------------------
         setLocationRelativeTo(null);
         setVisible(true);
+    }
+
+    private com.resumegenerator.model.Resume buildResumeFromForm() {
+        User userObj = new User(
+                nameField.getText().trim(),
+                emailField.getText().trim(),
+                phoneField.getText().trim()
+        );
+        if (currentUser != null && currentUser.getUserId() > 0) {
+            userObj.setUserId(currentUser.getUserId());
+            userObj.setUsername(currentUser.getUsername());
+        }
+
+        com.resumegenerator.model.Resume resume = new com.resumegenerator.model.Resume();
+        resume.setUser(userObj);
+        resume.setUserId(userObj.getUserId());
+        resume.setTitle(resumeTitleField.getText().trim());
+        resume.setResumeType(isExperienced.isSelected() ? ResumeType.EXPERIENCED : ResumeType.FRESHER);
+        resume.setObjective(objectiveField.getText().trim());
+        resume.setTemplateType(selectedTemplateType);
+
+        if (!educationField.getText().trim().isEmpty()) {
+            resume.addEducation(new Education("Not specified", educationField.getText().trim(), "", Calendar.getInstance().get(Calendar.YEAR), null, "", 1));
+        }
+
+        int skillOrder = 1;
+        for (String s : skillsField.getText().split(",")) {
+            if (!s.trim().isEmpty()) {
+                resume.addSkill(new Skill(s.trim(), ProficiencyLevel.INTERMEDIATE, skillOrder++));
+            }
+        }
+
+        if (isExperienced.isSelected() && !experienceField.getText().trim().isEmpty()) {
+            resume.addExperience(new Experience("Not specified", "Not specified", "", LocalDate.now(), null, experienceField.getText().trim(), 1));
+        }
+
+        if (!projectsField.getText().trim().isEmpty()) {
+            resume.addProject(new Project(projectsField.getText().trim(), "", "", "", 1));
+        }
+
+        if (!certificationsField.getText().trim().isEmpty()) {
+            resume.addCertification(new Certification(certificationsField.getText().trim(), "Not specified", LocalDate.now(), "", 1));
+        }
+
+        return resume;
     }
 
     private boolean validateInput() {
@@ -321,7 +252,7 @@ public class ResumeBuilder extends JFrame {
     }
 
     private boolean isValidPhone(String phone) {
-        return phone.matches("\\d{10,15}"); // Only digits, 10-15 characters
+        return phone.matches("\\d{10,15}");
     }
 
     private void showError(String message) {

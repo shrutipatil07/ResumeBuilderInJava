@@ -14,12 +14,13 @@ USE resume_builder;
 --      The email column doubles as the login identifier,
 --      and password_hash supports future authentication.
 -- ============================================================
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     user_id       INT            AUTO_INCREMENT PRIMARY KEY,
-    full_name     VARCHAR(100)   NOT NULL,
+    username      VARCHAR(50)    NOT NULL UNIQUE,
+    full_name     VARCHAR(100)   NULL,
     email         VARCHAR(150)   NOT NULL UNIQUE,
-    phone         VARCHAR(15)    NOT NULL,
-    password_hash VARCHAR(255)   NULL     COMMENT 'BCrypt hash; NULL until auth is implemented',
+    phone         VARCHAR(15)    NULL,
+    password_hash VARCHAR(255)   NOT NULL,
     created_at    TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -32,12 +33,13 @@ CREATE TABLE users (
 --      per-resume metadata: title, type, and the objective
 --      statement — all of which can differ between resumes.
 -- ============================================================
-CREATE TABLE resumes (
+CREATE TABLE IF NOT EXISTS resumes (
     resume_id       INT            AUTO_INCREMENT PRIMARY KEY,
     user_id         INT            NOT NULL,
     title           VARCHAR(150)   NOT NULL      COMMENT 'e.g. "Backend Developer Resume"',
     resume_type     ENUM('FRESHER','EXPERIENCED') NOT NULL,
     objective       TEXT           NULL           COMMENT 'Career objective / summary',
+    template_type   VARCHAR(50)    DEFAULT 'CLASSIC' COMMENT 'Persisted template style e.g. CLASSIC, MODERN, MINIMAL',
     created_at      TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -54,7 +56,7 @@ CREATE TABLE resumes (
 --      your current User model does — and lets each resume
 --      pick which degrees to show.
 -- ============================================================
-CREATE TABLE education (
+CREATE TABLE IF NOT EXISTS education (
     education_id    INT            AUTO_INCREMENT PRIMARY KEY,
     resume_id       INT            NOT NULL,
     institution     VARCHAR(200)   NOT NULL,
@@ -77,7 +79,7 @@ CREATE TABLE education (
 --      (e.g. "Java" stored once, shared by many) and makes
 --      skill-based searching possible.
 -- ============================================================
-CREATE TABLE skills (
+CREATE TABLE IF NOT EXISTS skills (
     skill_id    INT            AUTO_INCREMENT PRIMARY KEY,
     skill_name  VARCHAR(100)   NOT NULL UNIQUE
 ) ENGINE=InnoDB;
@@ -89,7 +91,7 @@ CREATE TABLE skills (
 --      skills, and the same skill can appear on many resumes.
 --      proficiency_level is optional metadata per association.
 -- ============================================================
-CREATE TABLE resume_skills (
+CREATE TABLE IF NOT EXISTS resume_skills (
     resume_id         INT        NOT NULL,
     skill_id          INT        NOT NULL,
     proficiency_level ENUM('BEGINNER','INTERMEDIATE','ADVANCED','EXPERT') NULL,
@@ -108,7 +110,7 @@ CREATE TABLE resume_skills (
 --      proper work-history timeline. For fresher resumes this
 --      table will simply be empty — no NULLs, no wasted space.
 -- ============================================================
-CREATE TABLE experience (
+CREATE TABLE IF NOT EXISTS experience (
     experience_id   INT            AUTO_INCREMENT PRIMARY KEY,
     resume_id       INT            NOT NULL,
     company_name    VARCHAR(200)   NOT NULL,
@@ -131,7 +133,7 @@ CREATE TABLE experience (
 --      individual descriptions, tech stacks, and links —
 --      instead of one flat text field.
 -- ============================================================
-CREATE TABLE projects (
+CREATE TABLE IF NOT EXISTS projects (
     project_id      INT            AUTO_INCREMENT PRIMARY KEY,
     resume_id       INT            NOT NULL,
     project_name    VARCHAR(200)   NOT NULL,
@@ -151,7 +153,7 @@ CREATE TABLE projects (
 --      lets you store the issuing organization, date, and a
 --      credential URL — far richer than a single text column.
 -- ============================================================
-CREATE TABLE certifications (
+CREATE TABLE IF NOT EXISTS certifications (
     certification_id   INT            AUTO_INCREMENT PRIMARY KEY,
     resume_id          INT            NOT NULL,
     certification_name VARCHAR(200)   NOT NULL,
@@ -173,7 +175,7 @@ CREATE TABLE certifications (
 --      It decouples the "resume data" from the "export history"
 --      so you never lose track of previously generated files.
 -- ============================================================
-CREATE TABLE generated_resumes (
+CREATE TABLE IF NOT EXISTS generated_resumes (
     generation_id   INT            AUTO_INCREMENT PRIMARY KEY,
     resume_id       INT            NOT NULL,
     file_path       VARCHAR(500)   NOT NULL       COMMENT 'Path or URL to the generated PDF',
@@ -184,26 +186,7 @@ CREATE TABLE generated_resumes (
         ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- ============================================================
--- 10. login_users
--- ============================================================
--- WHY: A dedicated table for user authentication, separate
---      from the `users` table which stores resume profile data.
---      This follows Single Responsibility:
---        • login_users → WHO can access the app (credentials)
---        • users       → WHAT data they entered (resume content)
---
---      Passwords are stored as BCrypt hashes — NEVER plain text.
---      If the database is breached, attackers get hashes that
---      cannot be reversed into usable passwords.
--- ============================================================
-CREATE TABLE login_users (
-    id              INT             AUTO_INCREMENT PRIMARY KEY,
-    username        VARCHAR(50)     NOT NULL UNIQUE,
-    email           VARCHAR(150)    NOT NULL UNIQUE,
-    password_hash   VARCHAR(255)    NOT NULL,
-    created_at      TIMESTAMP       DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
+
 
 -- ============================================================
 -- Indexes for common query patterns

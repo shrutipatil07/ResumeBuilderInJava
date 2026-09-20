@@ -138,25 +138,5 @@ public class ConfigLoader {
     public static String getPassword() {
         return properties.getProperty("db.password");
     }
-
-    /**
-     * Returns the connection pool size as an integer.
-     * Defaults to 5 if the key is missing or not a valid number.
-     *
-     * WHY: A pool reuses connections instead of opening a new one
-     *      for every query — much faster under load.
-     */
-    public static int getPoolSize() {
-        // -------------------------------------------------------
-        // properties.getProperty("db.pool.size", "5")
-        //   → returns the value for key "db.pool.size".
-        //     If the key is missing, returns the default "5".
-        //
-        // Integer.parseInt(...)
-        //   → converts the String to an int.
-        // -------------------------------------------------------
-        return Integer.parseInt(
-            properties.getProperty("db.pool.size", "5")
-        );
-    }
 }
+

@@ -183,7 +183,7 @@ public class Dashboard extends JFrame {
     // open in the background so the user can return to it.
     // ===============================================================
     public void openResumeBuilder() {
-        new ResumeBuilder();
+        new ResumeBuilder(currentUser);
     }
 
     // ===============================================================

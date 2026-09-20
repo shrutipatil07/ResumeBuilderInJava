@@ -1,0 +1,624 @@
+# Resume Builder — Codebase Walkthrough
+
+> **Project Description (as stated):**
+>
+> *Resume Builder Web Application – React & Java | 2024 | GitHub*
+> 1. *Designed a Java application using OOP principles and MVC architecture, separating validation, rendering, and persistence responsibilities for maintainable modularity.*
+> 2. *Implemented JDBC/MySQL-backed persistence for profile management and version tracking, applying relational database design, foreign-key relationships, and SQL query logic.*
+> 3. *Built modular, reusable validation components and dynamic template rendering across 3 resume formats with automated PDF generation.*
+
+This walkthrough maps **every component in the codebase** to the description bullet it substantiates.
+
+---
+
+## How the Description Maps to Code
+
+```mermaid
+graph TD
+    subgraph "Bullet 1 — OOP + MVC Architecture"
+        direction TB
+        B1A["Inheritance: Resume → FresherResume, ExperiencedResume"]
+        B1B["Polymorphism: ResumeTemplate interface"]
+        B1C["Encapsulation: LoginUser private fields + getters/setters"]
+        B1D["Abstraction: Resume abstract class"]
+        B1E["MVC: UI layer → Service layer → DAO layer"]
+    end
+
+    subgraph "Bullet 2 — JDBC/MySQL Persistence"
+        direction TB
+        B2A["ConfigLoader → DatabaseManager → JDBC connections"]
+        B2B["UserDAO: 7-table transactional INSERT"]
+        B2C["LoginDAO: auth CRUD"]
+        B2D["10-table normalized schema with FKs"]
+        B2E["generated_resumes table for version tracking"]
+    end
+
+    subgraph "Bullet 3 — Validation + Templates + PDF"
+        direction TB
+        B3A["AuthenticationService.validateRegistration()"]
+        B3B["ResumeBuilder.validateInput() + regex"]
+        B3C["3 templates: Classic, Modern, Minimal"]
+        B3D["TemplateFactory + TemplateType enum"]
+        B3E["PDFGenerator + iText 5"]
+    end
+
+    B1E -->|"Service validates"| B3A
+    B1E -->|"DAO persists"| B2B
+    B3D -->|"renders for"| B3E
+    B2B -->|"uses connections from"| B2A
+```
+
+---
+
+# Bullet 1 — OOP Principles & MVC Architecture
+
+> *"Designed a Java application using OOP principles and MVC architecture, separating validation, rendering, and persistence responsibilities for maintainable modularity."*
+
+## 1.1 OOP Principles in Action
+
+### Inheritance
+
+| Base | Subclass | File |
+|---|---|---|
+| `Resume` (abstract) | `FresherResume` | [FresherResume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/FresherResume.java) |
+| `Resume` (abstract) | `ExperiencedResume` | [ExperiencedResume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ExperiencedResume.java) |
+
+[Resume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/Resume.java) defines the abstract base with a `User` field, template composition, and the abstract method `getFormattedResume()`. Subclasses inherit the `user` field and `renderWithTemplate()` behavior, only overriding the formatting logic specific to their resume type.
+
+### Polymorphism
+
+The **Strategy pattern** via [ResumeTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ResumeTemplate.java) — a single interface with three interchangeable implementations:
+
+```
+ResumeTemplate template = TemplateFactory.create(TemplateType.MODERN);
+template.render(user);  // dispatches to ModernTemplate.render() at runtime
+```
+
+All three concrete templates ([ClassicTemplate](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ClassicTemplate.java), [ModernTemplate](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ModernTemplate.java), [MinimalTemplate](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/MinimalTemplate.java)) are substitutable through the same interface — the caller never knows which concrete class is executing.
+
+### Encapsulation
+
+[LoginUser.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/model/LoginUser.java) demonstrates textbook encapsulation:
+- All 4 fields are `private` (`userId`, `username`, `email`, `password`)
+- Access only through public getters/setters
+- No-arg + parameterized constructors for flexible creation
+- Future validation can be added inside setters without changing callers
+
+### Abstraction
+
+[Resume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/Resume.java) is an `abstract class` — it defines the contract (`getFormattedResume()`) and shared behavior (`renderWithTemplate()`) without specifying how a fresher vs. experienced resume is formatted. Consumers work with the `Resume` type, not the concrete subclass.
+
+## 1.2 MVC Architecture — The Three Responsibilities
+
+```mermaid
+graph LR
+    subgraph "VIEW — UI Layer"
+        LF["LoginFrame"]
+        RF["RegisterFrame"]
+        DB["Dashboard"]
+        RB["ResumeBuilder"]
+    end
+
+    subgraph "CONTROLLER — Service Layer"
+        AS["AuthenticationService"]
+    end
+
+    subgraph "MODEL — Data + Persistence"
+        U["User"]
+        LU["LoginUser"]
+        UDAO["UserDAO"]
+        LDAO["LoginDAO"]
+        DM["DatabaseManager"]
+    end
+
+    LF -->|"delegates auth"| AS
+    RF -->|"delegates registration"| AS
+    RB -->|"delegates save"| UDAO
+    AS -->|"delegates SQL"| LDAO
+    LDAO --> DM
+    UDAO --> DM
+    AS -.->|"validates"| AS
+    RB -.->|"validates"| RB
+```
+
+### Separation of Responsibilities
+
+| Responsibility | Layer | Classes | What it does NOT do |
+|---|---|---|---|
+| **Validation** | Service | [AuthenticationService](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/service/AuthenticationService.java) — `validateRegistration()` | No SQL, no UI dialogs |
+| **Validation** | UI (local) | [ResumeBuilder](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java) — `validateInput()`, `isValidEmail()`, `isValidPhone()` | No business logic, no DB |
+| **Rendering** | Resume | [ClassicTemplate](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ClassicTemplate.java), [ModernTemplate](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ModernTemplate.java), [MinimalTemplate](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/MinimalTemplate.java) | No DB, no UI |
+| **Persistence** | DAO | [UserDAO](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java), [LoginDAO](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/LoginDAO.java) | No validation, no rendering |
+| **Display** | UI | [LoginFrame](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/LoginFrame.java), [RegisterFrame](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/RegisterFrame.java), [Dashboard](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/Dashboard.java), [ResumeBuilder](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java) | No SQL, no hashing |
+
+> [!TIP]
+> **Why validation lives in the service layer, not the UI:** If validation were in `RegisterFrame`, a CLI version, REST endpoint, or unit test would have **zero validation**. By placing it in [AuthenticationService](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/service/AuthenticationService.java), every caller gets the same rules automatically.
+
+### Design Patterns Backing This Architecture
+
+| Pattern | Implementation | Files |
+|---|---|---|
+| **Strategy** | `ResumeTemplate` interface with 3 implementations | [ResumeTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ResumeTemplate.java), [ClassicTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ClassicTemplate.java), [ModernTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ModernTemplate.java), [MinimalTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/MinimalTemplate.java) |
+| **Factory** | `TemplateFactory.create(TemplateType)` — sole class that references concrete templates | [TemplateFactory.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/TemplateFactory.java) |
+| **Template Method** | `Resume.getFormattedResume()` abstract → subclasses define formatting | [Resume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/Resume.java) |
+| **DAO** | All SQL isolated in `UserDAO` and `LoginDAO` | [UserDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java), [LoginDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/LoginDAO.java) |
+| **Constructor Injection** | `Dashboard(LoginUser user)` — receives the authenticated user | [Dashboard.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/Dashboard.java) |
+
+---
+
+# Bullet 2 — JDBC/MySQL Persistence, Relational Design & FK Relationships
+
+> *"Implemented JDBC/MySQL-backed persistence for profile management and version tracking, applying relational database design, foreign-key relationships, and SQL query logic."*
+
+## 2.1 Database Infrastructure Stack
+
+```mermaid
+graph TD
+    CP["config.properties"] -->|"read by"| CL["ConfigLoader"]
+    CL -->|"provides credentials to"| DM["DatabaseManager"]
+    DM -->|"Class.forName(driver)"| DRIVER["MySQL Connector/J 9.1.0"]
+    DM -->|"DriverManager.getConnection()"| CONN["java.sql.Connection"]
+    CONN -->|"used by"| UDAO["UserDAO"]
+    CONN -->|"used by"| LDAO["LoginDAO"]
+```
+
+| Component | File | Role |
+|---|---|---|
+| **ConfigLoader** | [ConfigLoader.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/config/ConfigLoader.java) | Reads `db.url`, `db.username`, `db.password`, `db.driver`, `db.pool.size` from classpath. Static initializer → fail-fast if missing. |
+| **DatabaseManager** | [DatabaseManager.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/db/DatabaseManager.java) | Centralizes JDBC connection lifecycle. `getConnection()` opens a new connection; `closeConnection()` is null-safe and idempotent. |
+| **config.properties** | [config.properties.example](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/config.properties.example) | Externalized credentials — never hardcoded. `.gitignore`d for security. |
+
+## 2.2 Relational Database Design — 10 Normalized Tables
+
+[schema.sql](file:///c:/Users/shrut/Downloads/Resume%20Generator/db/schema.sql) defines the full normalized schema:
+
+```mermaid
+erDiagram
+    users ||--o{ resumes : "1:N"
+    resumes ||--o{ education : "1:N"
+    resumes ||--o{ resume_skills : "1:N"
+    skills ||--o{ resume_skills : "1:N"
+    resumes ||--o{ experience : "1:N"
+    resumes ||--o{ projects : "1:N"
+    resumes ||--o{ certifications : "1:N"
+    resumes ||--o{ generated_resumes : "1:N (version tracking)"
+
+    users {
+        int user_id PK
+        varchar full_name
+        varchar email UK
+        varchar phone
+        varchar password_hash
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    login_users {
+        int id PK
+        varchar username UK
+        varchar email UK
+        varchar password_hash
+        timestamp created_at
+    }
+
+    resumes {
+        int resume_id PK
+        int user_id FK
+        varchar title
+        enum resume_type
+        text objective
+    }
+
+    education {
+        int education_id PK
+        int resume_id FK
+        varchar institution
+        varchar degree
+        year start_year
+    }
+
+    skills {
+        int skill_id PK
+        varchar skill_name UK
+    }
+
+    resume_skills {
+        int resume_id FK_PK
+        int skill_id FK_PK
+        enum proficiency_level
+        tinyint display_order
+    }
+
+    experience {
+        int experience_id PK
+        int resume_id FK
+        varchar company_name
+        varchar job_title
+        date start_date
+    }
+
+    projects {
+        int project_id PK
+        int resume_id FK
+        varchar project_name
+    }
+
+    certifications {
+        int certification_id PK
+        int resume_id FK
+        varchar certification_name
+    }
+
+    generated_resumes {
+        int generation_id PK
+        int resume_id FK
+        varchar file_path
+        enum file_format
+        timestamp generated_at
+    }
+```
+
+### Foreign-Key Relationships
+
+| Parent Table | Child Table | FK Column | ON DELETE |
+|---|---|---|---|
+| `users` | `resumes` | `user_id` | CASCADE |
+| `resumes` | `education` | `resume_id` | CASCADE |
+| `resumes` | `resume_skills` | `resume_id` | CASCADE |
+| `skills` | `resume_skills` | `skill_id` | CASCADE |
+| `resumes` | `experience` | `resume_id` | CASCADE |
+| `resumes` | `projects` | `resume_id` | CASCADE |
+| `resumes` | `certifications` | `resume_id` | CASCADE |
+| `resumes` | `generated_resumes` | `resume_id` | CASCADE |
+
+> [!IMPORTANT]
+> **Many-to-Many**: `skills ↔ resume_skills ↔ resumes` — one resume lists many skills; one skill appears on many resumes. The `resume_skills` junction table has a composite primary key `(resume_id, skill_id)`.
+
+### Version Tracking — `generated_resumes` Table
+
+Every PDF generation event is logged with `resume_id`, `file_path`, `file_format`, and `generated_at` timestamp. This provides a **complete audit trail** of every resume version ever produced.
+
+## 2.3 Profile Management — SQL Query Logic
+
+### UserDAO `save()` — Multi-Table Transactional INSERT
+
+[UserDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java) (~1165 lines) executes a **7-table cascade insert** using `PreparedStatement` + `RETURN_GENERATED_KEYS`:
+
+```mermaid
+sequenceDiagram
+    participant RB as ResumeBuilder (UI)
+    participant DAO as UserDAO
+    participant DB as MySQL
+
+    RB->>DAO: save(user)
+    DAO->>DB: INSERT INTO users (full_name, email, phone) → user_id
+    DAO->>DB: INSERT INTO resumes (user_id, title, type, objective) → resume_id
+    DAO->>DB: INSERT INTO education (resume_id, institution, degree, start_year)
+    loop Each Skill
+        DAO->>DB: INSERT IGNORE INTO skills (skill_name)
+        DAO->>DB: SELECT skill_id FROM skills WHERE skill_name = ?
+        DAO->>DB: INSERT INTO resume_skills (resume_id, skill_id, display_order)
+    end
+    DAO->>DB: INSERT INTO experience (resume_id, company, title, start_date, description)
+    DAO->>DB: INSERT INTO projects (resume_id, project_name)
+    DAO->>DB: INSERT INTO certifications (resume_id, certification_name)
+    DAO-->>RB: return user_id
+```
+
+**SQL Constants Defined in UserDAO:**
+
+| Constant | SQL | Purpose |
+|---|---|---|
+| `INSERT_USER_SQL` | `INSERT INTO users (full_name, email, phone) VALUES (?, ?, ?)` | Profile creation |
+| `INSERT_RESUME_SQL` | `INSERT INTO resumes (user_id, title, resume_type, objective) VALUES (?, ?, ?, ?)` | Resume metadata |
+| `INSERT_EDUCATION_SQL` | `INSERT INTO education (resume_id, institution, degree, start_year) VALUES (?, ?, ?, ?)` | Education records |
+| `INSERT_SKILL_SQL` | `INSERT IGNORE INTO skills (skill_name) VALUES (?)` | Deduplicated skill master |
+| `SELECT_SKILL_ID_SQL` | `SELECT skill_id FROM skills WHERE skill_name = ?` | Skill ID lookup |
+| `INSERT_RESUME_SKILL_SQL` | `INSERT INTO resume_skills (resume_id, skill_id, display_order) VALUES (?, ?, ?)` | Many-to-many junction |
+| `INSERT_EXPERIENCE_SQL` | `INSERT INTO experience (...) VALUES (?, ?, ?, ?, ?)` | Work history |
+| `INSERT_PROJECT_SQL` | `INSERT INTO projects (resume_id, project_name) VALUES (?, ?)` | Project records |
+| `INSERT_CERTIFICATION_SQL` | `INSERT INTO certifications (resume_id, certification_name) VALUES (?, ?)` | Certification records |
+
+### LoginDAO — Authentication CRUD
+
+[LoginDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/LoginDAO.java):
+
+| Method | SQL | Returns |
+|---|---|---|
+| `registerUser(LoginUser)` | `INSERT INTO login_users (username, email, password_hash) VALUES (?, ?, ?)` | `boolean` — success/failure |
+| `authenticate(username)` | `SELECT id, username, email, password_hash FROM login_users WHERE username = ?` | `LoginUser` with stored hash (or `null`) |
+
+> [!NOTE]
+> **Why SELECT by username only (not username + password)?** The password is stored as a BCrypt hash. You can't put the plain-text password in a `WHERE` clause — MySQL would compare `"1234"` against `"$2a$10$N9qo8..."` and never match. Instead, the DAO returns the hash, and `AuthenticationService` calls `BCrypt.checkpw()`.
+
+---
+
+# Bullet 3 — Validation Components, Dynamic Template Rendering & PDF Generation
+
+> *"Built modular, reusable validation components and dynamic template rendering across 3 resume formats with automated PDF generation."*
+
+## 3.1 Modular, Reusable Validation Components
+
+### Service-Layer Validation (Reusable Across Any Caller)
+
+[AuthenticationService.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/service/AuthenticationService.java) — `validateRegistration()`:
+
+| Check | Rule | Exception Message |
+|---|---|---|
+| Username | Cannot be null or empty (after trim) | `"Username cannot be empty!"` |
+| Email | Cannot be null or empty (after trim) | `"Email cannot be empty!"` |
+| Password | Cannot be null or empty | `"Password cannot be empty!"` |
+| Confirm Password | Must equal password (`.equals()`) | `"Passwords do not match!"` |
+
+Throws `IllegalArgumentException` with the exact user-facing message. The UI simply catches and displays — **zero duplication of validation logic**.
+
+### UI-Layer Validation (Form-Specific)
+
+[ResumeBuilder.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java) — `validateInput()`:
+
+| Check | Method | Rule |
+|---|---|---|
+| Name | inline | Cannot be empty |
+| Email | `isValidEmail()` | Regex: `^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$` |
+| Phone | `isValidPhone()` | Regex: `\\d{10,15}` (digits only, 10–15 chars) |
+| Skills | inline | At least one skill required |
+| Experience | inline | Cannot be empty **if** "Experienced?" is checked |
+
+Both validation layers are **reusable** — the same `validateInput()` guards both the "Generate Resume" and "Save to Database" actions.
+
+### How Validation Flows Through the Architecture
+
+```mermaid
+flowchart TD
+    UI_REG["RegisterFrame: reads fields"]
+    UI_RB["ResumeBuilder: reads fields"]
+
+    SVC["AuthenticationService.validateRegistration()"]
+    LOCAL["ResumeBuilder.validateInput()"]
+
+    DAO_L["LoginDAO.registerUser()"]
+    DAO_U["UserDAO.save()"]
+
+    ERR1["IllegalArgumentException → UI shows message"]
+    ERR2["showError() dialog"]
+
+    UI_REG -->|"delegates"| SVC
+    SVC -->|"fails"| ERR1
+    SVC -->|"passes"| DAO_L
+
+    UI_RB -->|"self-validates"| LOCAL
+    LOCAL -->|"fails"| ERR2
+    LOCAL -->|"passes"| DAO_U
+```
+
+## 3.2 Dynamic Template Rendering — 3 Resume Formats
+
+The template system uses **Strategy + Factory** patterns to achieve runtime-swappable formatting:
+
+```mermaid
+graph LR
+    COMBO["JComboBox: Classic / Modern / Minimal"]
+    TT["TemplateType enum"]
+    TF["TemplateFactory.create()"]
+
+    CT["ClassicTemplate"]
+    MT["ModernTemplate"]
+    MnT["MinimalTemplate"]
+
+    RT["ResumeTemplate.render(user)"]
+    RES["Resume.renderWithTemplate()"]
+    PDF["PDFGenerator.createPDF()"]
+
+    COMBO -->|"user selects"| TT
+    TT -->|"passed to"| TF
+    TF -->|"CLASSIC"| CT
+    TF -->|"MODERN"| MT
+    TF -->|"MINIMAL"| MnT
+    CT -.->|"implements"| RT
+    MT -.->|"implements"| RT
+    MnT -.->|"implements"| RT
+    RT -->|"called by"| RES
+    RES -->|"content to"| PDF
+```
+
+### The 3 Template Formats
+
+````carousel
+**Classic Template** — [ClassicTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ClassicTemplate.java)
+
+Traditional, formal, section-by-section layout:
+```
+=========================================
+John Doe
+=========================================
+Email: john@example.com
+Phone: 9876543210
+
+OBJECTIVE
+---------
+Seeking a software engineering role...
+
+EDUCATION
+---------
+B.Tech Computer Science
+
+SKILLS
+------
+Java, SQL, Git
+```
+<!-- slide -->
+**Modern Template** — [ModernTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ModernTemplate.java)
+
+Compact, scannable, single-line header style:
+```
+John Doe  |  john@example.com  |  9876543210
+
+» Seeking a software engineering role...
+
+SKILLS  Java · SQL · Git
+
+EXPERIENCE  (1 yrs)
+1 year internship at a fintech startup
+
+CREDENTIALS
+  Education: B.Tech Computer Science
+  Certifications: Oracle Certified Java Programmer
+```
+<!-- slide -->
+**Minimal Template** — [MinimalTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/MinimalTemplate.java)
+
+Stripped-down, no banners, plain labeled lines:
+```
+John Doe
+john@example.com | 9876543210
+
+Objective: Seeking a software engineering role...
+Education: B.Tech Computer Science
+Skills: Java, SQL, Git
+Experience: 1 yrs - 1 year internship at a fintech startup
+Projects: Resume Generator (Java Swing)
+Certifications: Oracle Certified Java Programmer
+```
+````
+
+### Key Files in the Template System
+
+| File | Role | Design Pattern |
+|---|---|---|
+| [ResumeTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ResumeTemplate.java) | Interface contract: `String render(User)` | **Strategy** (interface) |
+| [ClassicTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ClassicTemplate.java) | Concrete strategy — formal layout | Strategy (implementation) |
+| [ModernTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ModernTemplate.java) | Concrete strategy — compact layout | Strategy (implementation) |
+| [MinimalTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/MinimalTemplate.java) | Concrete strategy — plain layout | Strategy (implementation) |
+| [TemplateType.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/TemplateType.java) | Enum: `CLASSIC`, `MODERN`, `MINIMAL` | Type-safe identifier |
+| [TemplateFactory.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/TemplateFactory.java) | Maps `TemplateType` → concrete instance | **Factory** |
+| [Resume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/Resume.java) | Holds `User` + `ResumeTemplate`, delegates via `renderWithTemplate()` | **Composition** |
+
+## 3.3 Automated PDF Generation
+
+[PDFGenerator.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/export/PDFGenerator.java) uses **iText 5.5.13.3** to convert rendered resume content into a PDF file:
+
+```
+PDFGenerator.createPDF(resume, "resume_modern.pdf")
+  → resume.renderWithTemplate()
+       → template.render(user)  // returns formatted String
+  → new Document()
+  → PdfWriter.getInstance(document, new FileOutputStream(fileName))
+  → document.open()
+  → document.add(new Paragraph(content))
+  → document.close()
+  → ✅ PDF Created: resume_modern.pdf
+```
+
+Two overloads for flexibility:
+- `createPDF(String content, String fileName)` — raw content (legacy)
+- `createPDF(Resume resume, String fileName)` — template-aware (calls `renderWithTemplate()` internally)
+
+---
+
+# Full Application Flow — All 3 Bullets Connected
+
+```mermaid
+stateDiagram-v2
+    [*] --> LoginFrame
+
+    state "Bullet 1: MVC Architecture" as B1 {
+        LoginFrame --> RegisterFrame: Register
+        RegisterFrame --> LoginFrame: Back / Success
+        LoginFrame --> Dashboard: Login Success
+        Dashboard --> ResumeBuilder: Create Resume
+        Dashboard --> LoginFrame: Logout
+    }
+
+    state "Bullet 3: Validation" as B3_val {
+        state "AuthenticationService" as AS
+        AS: validateRegistration()
+        AS: BCrypt.hashpw()
+
+        state "ResumeBuilder" as RB_val
+        RB_val: validateInput()
+        RB_val: isValidEmail()
+        RB_val: isValidPhone()
+    }
+
+    state "Bullet 2: JDBC/MySQL Persistence" as B2 {
+        state "LoginDAO" as LDAO
+        LDAO: registerUser() → INSERT login_users
+        LDAO: authenticate() → SELECT login_users
+
+        state "UserDAO" as UDAO
+        UDAO: save() → INSERT 7 tables
+        UDAO: findById() → SELECT users
+    }
+
+    state "Bullet 3: Templates + PDF" as B3_pdf {
+        state "TemplateFactory" as TF
+        TF: create(CLASSIC/MODERN/MINIMAL)
+
+        state "PDFGenerator" as PDF
+        PDF: createPDF(resume, fileName)
+    }
+
+    RegisterFrame --> AS
+    LoginFrame --> AS
+    AS --> LDAO
+
+    ResumeBuilder --> RB_val
+    RB_val --> UDAO: Save to Database
+    RB_val --> TF: Generate Resume
+    TF --> PDF
+```
+
+---
+
+# Traceability Matrix — Description ↔ Code Evidence
+
+| Description Claim | Evidence | Files |
+|---|---|---|
+| "OOP principles" — **Inheritance** | `Resume` → `FresherResume`, `ExperiencedResume` | [Resume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/Resume.java), [FresherResume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/FresherResume.java), [ExperiencedResume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ExperiencedResume.java) |
+| "OOP principles" — **Polymorphism** | `ResumeTemplate` interface, 3 implementations | [ResumeTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ResumeTemplate.java), [ClassicTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ClassicTemplate.java), [ModernTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ModernTemplate.java), [MinimalTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/MinimalTemplate.java) |
+| "OOP principles" — **Encapsulation** | Private fields, public getters/setters | [LoginUser.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/model/LoginUser.java), [User.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/model/User.java) |
+| "OOP principles" — **Abstraction** | Abstract `Resume` class, `ResumeTemplate` interface | [Resume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/Resume.java), [ResumeTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ResumeTemplate.java) |
+| "MVC architecture" | UI → Service → DAO → DB | All `ui/`, `service/`, `dao/` packages |
+| "Separating validation" | `AuthenticationService.validateRegistration()`, `ResumeBuilder.validateInput()` | [AuthenticationService.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/service/AuthenticationService.java), [ResumeBuilder.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java) |
+| "Separating rendering" | Template engine: `ResumeTemplate` → 3 concrete templates | `resume/` package (6 files) |
+| "Separating persistence" | DAO pattern: `UserDAO`, `LoginDAO` | [UserDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java), [LoginDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/LoginDAO.java) |
+| "JDBC/MySQL-backed persistence" | `DatabaseManager` + `PreparedStatement` + `ResultSet` | [DatabaseManager.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/db/DatabaseManager.java), [UserDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java) |
+| "Profile management" | `UserDAO.save()` — 7-table INSERT; `findById()`, `findAll()` | [UserDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java) |
+| "Version tracking" | `generated_resumes` table — logs every PDF generation with timestamp | [schema.sql](file:///c:/Users/shrut/Downloads/Resume%20Generator/db/schema.sql) (lines 176–185) |
+| "Relational database design" | 10 normalized tables, InnoDB engine | [schema.sql](file:///c:/Users/shrut/Downloads/Resume%20Generator/db/schema.sql) |
+| "Foreign-key relationships" | 8 FK constraints with `ON DELETE CASCADE` | [schema.sql](file:///c:/Users/shrut/Downloads/Resume%20Generator/db/schema.sql) |
+| "SQL query logic" | `INSERT`, `SELECT`, `INSERT IGNORE`, `RETURN_GENERATED_KEYS` | [UserDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java), [LoginDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/LoginDAO.java) |
+| "Reusable validation components" | Same `validateInput()` guards both Generate and Save buttons | [ResumeBuilder.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java) |
+| "Dynamic template rendering" | Runtime template swap via `TemplateFactory` + JComboBox | [TemplateFactory.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/TemplateFactory.java), [ResumeBuilder.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java) |
+| "3 resume formats" | Classic, Modern, Minimal | [ClassicTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ClassicTemplate.java), [ModernTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ModernTemplate.java), [MinimalTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/MinimalTemplate.java) |
+| "Automated PDF generation" | `PDFGenerator.createPDF()` using iText 5 | [PDFGenerator.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/export/PDFGenerator.java) |
+
+---
+
+## External Dependencies
+
+| Library | Version | Backing Description Claim | Used By |
+|---|---|---|---|
+| **iText 5** | 5.5.13.3 | "Automated PDF generation" | [PDFGenerator](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/export/PDFGenerator.java) |
+| **MySQL Connector/J** | 9.1.0 | "JDBC/MySQL-backed persistence" | [DatabaseManager](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/db/DatabaseManager.java) |
+| **jBCrypt** | 0.4 | "Separating validation responsibilities" (secure password handling) | [AuthenticationService](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/service/AuthenticationService.java) |
+| **Spring Boot Starter Web** | 3.2.5 | Future REST API layer | [ResumeApiApplication](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/api/ResumeApiApplication.java) |
+
+---
+
+## Complete File Index
+
+| Layer | Files | Maps to Bullet |
+|---|---|---|
+| **Entry** | [ResumeApp.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ResumeApp.java), [ResumeApiApplication.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/api/ResumeApiApplication.java) | 1 (MVC) |
+| **Config** | [ConfigLoader.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/config/ConfigLoader.java) | 2 (Persistence) |
+| **Database** | [DatabaseManager.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/db/DatabaseManager.java), [schema.sql](file:///c:/Users/shrut/Downloads/Resume%20Generator/db/schema.sql) | 2 (Persistence) |
+| **Models** | [User.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/model/User.java), [LoginUser.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/model/LoginUser.java) | 1 (OOP) |
+| **DAO** | [UserDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/UserDAO.java), [LoginDAO.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/dao/LoginDAO.java) | 2 (Persistence) |
+| **Service** | [AuthenticationService.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/service/AuthenticationService.java) | 1 (MVC) + 3 (Validation) |
+| **Resume** | [Resume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/Resume.java), [FresherResume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/FresherResume.java), [ExperiencedResume.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ExperiencedResume.java) | 1 (OOP) |
+| **Templates** | [ResumeTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ResumeTemplate.java), [ClassicTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ClassicTemplate.java), [ModernTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/ModernTemplate.java), [MinimalTemplate.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/MinimalTemplate.java), [TemplateFactory.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/TemplateFactory.java), [TemplateType.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/resume/TemplateType.java) | 3 (Templates) |
+| **Export** | [PDFGenerator.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/export/PDFGenerator.java) | 3 (PDF) |
+| **UI** | [LoginFrame.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/LoginFrame.java), [RegisterFrame.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/RegisterFrame.java), [Dashboard.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/Dashboard.java), [ResumeBuilder.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/ui/ResumeBuilder.java) | 1 (MVC) + 3 (Validation) |
+| **API** | [HealthController.java](file:///c:/Users/shrut/Downloads/Resume%20Generator/src/com/resumegenerator/api/HealthController.java) | 1 (MVC) |
+| **Build** | [pom.xml](file:///c:/Users/shrut/Downloads/Resume%20Generator/pom.xml) | All |

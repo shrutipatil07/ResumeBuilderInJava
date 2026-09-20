@@ -1,40 +1,26 @@
 package com.resumegenerator.resume;
 
-import com.resumegenerator.model.User;
-import java.util.ArrayList;
-import java.util.Arrays;
+import com.resumegenerator.model.*;
 
-// ---------------------------------------------------------------
-// TemplateTest — TEMPORARY verification class.
-// Not part of production code. Delete after confirming all three
-// templates render correctly from the same data.
-//
-// Purpose: prove ClassicTemplate, ModernTemplate, and
-// MinimalTemplate all satisfy ResumeTemplate and produce
-// genuinely different output from identical input.
-// ---------------------------------------------------------------
+import java.time.LocalDate;
+
 public class TemplateTest {
 
     public static void main(String[] args) {
-        // Single shared User instance — same data goes into every template
-        ArrayList<String> skills = new ArrayList<>(Arrays.asList("Java", "SQL", "Git"));
-        User user = new User(
-                "Shruti Sharma",
-                "shruti@example.com",
-                "9876543210",
-                "B.Tech Computer Science",
-                skills,
-                "1 year internship at a fintech startup",
-                "Resume Generator (Java Swing)",
-                "Oracle Certified Java Programmer",
-                "Seeking a software engineering role to apply CS fundamentals.",
-                1
-        );
+        User user = new User("Shruti Sharma", "shruti@example.com", "9876543210");
 
-        // Declared as ResumeTemplate — the variable's static type is the
-        // interface, not the concrete class. This is what proves
-        // polymorphism: each object is swapped in through the SAME
-        // reference type.
+        com.resumegenerator.model.Resume resume = new com.resumegenerator.model.Resume();
+        resume.setUser(user);
+        resume.setObjective("Seeking a software engineering role to apply CS fundamentals.");
+
+        resume.addEducation(new Education("ABC Tech University", "B.Tech", "Computer Science", 2020, 2024, "8.5 CGPA", 1));
+        resume.addSkill(new Skill("Java", ProficiencyLevel.ADVANCED, 1));
+        resume.addSkill(new Skill("SQL", ProficiencyLevel.INTERMEDIATE, 2));
+        resume.addSkill(new Skill("Git", ProficiencyLevel.INTERMEDIATE, 3));
+        resume.addExperience(new Experience("Fintech Startup", "Software Engineer Intern", "Bangalore", LocalDate.of(2023, 6, 1), LocalDate.of(2023, 12, 31), "Developed backend API microservices.", 1));
+        resume.addProject(new Project("Resume Generator", "Java Swing desktop app with MySQL", "Java, Swing, MySQL", "https://github.com/example/resume-generator", 1));
+        resume.addCertification(new Certification("Oracle Certified Java Associate", "Oracle", LocalDate.of(2023, 5, 15), "https://oracle.com/cert/123", 1));
+
         ResumeTemplate[] templates = {
                 new ClassicTemplate(),
                 new ModernTemplate(),
@@ -43,12 +29,11 @@ public class TemplateTest {
 
         for (ResumeTemplate template : templates) {
             System.out.println("=== " + template.getClass().getSimpleName() + " ===");
-            System.out.println(template.render(user));
+            System.out.println(template.render(resume));
             System.out.println();
         }
 
         ResumeTemplate t = TemplateFactory.create(TemplateType.MODERN);
-System.out.println(t.getClass().getSimpleName()); // should print: ModernTemplate
-System.out.println(t instanceof ModernTemplate);    // should print: true
+        System.out.println("Factory created template: " + t.getClass().getSimpleName());
     }
 }
