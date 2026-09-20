@@ -4,11 +4,10 @@ import com.resumegenerator.dao.UserDAO;
 import com.resumegenerator.export.PDFGenerator;
 import com.resumegenerator.model.*;
 import com.resumegenerator.resume.TemplateType;
+import com.resumegenerator.service.ResumeService;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import java.awt.*;
-import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -24,6 +23,9 @@ public class ResumeBuilder extends JFrame {
     private TemplateType selectedTemplateType = TemplateType.CLASSIC;
     private JButton generateButton, saveButton;
     private User currentUser;
+    private LoginUser currentLoginUser;
+    private Resume editingResume;
+    private Runnable onSaveCallback;
 
     // Repeatable Section Container Panels
     private JPanel educationContainer;
@@ -39,15 +41,38 @@ public class ResumeBuilder extends JFrame {
     private List<CertificationCard> certificationCards = new ArrayList<>();
 
     public ResumeBuilder() {
-        this(null);
+        this((LoginUser) null, null, null);
     }
 
     public ResumeBuilder(User user) {
-        this.currentUser = user;
+        this(convertToLoginUser(user), null, null);
+        if (user != null) {
+            this.currentUser = user;
+        }
+    }
 
-        setTitle("AI Resume Builder");
+    public ResumeBuilder(LoginUser loginUser) {
+        this(loginUser, null, null);
+    }
+
+    public ResumeBuilder(LoginUser loginUser, Resume existingResume) {
+        this(loginUser, existingResume, null);
+    }
+
+    public ResumeBuilder(LoginUser loginUser, Resume existingResume, Runnable onSaveCallback) {
+        this.currentLoginUser = loginUser;
+        this.editingResume = existingResume;
+        this.onSaveCallback = onSaveCallback;
+
+        if (loginUser != null) {
+            this.currentUser = new User(loginUser.getUsername(), loginUser.getEmail(), "");
+            this.currentUser.setUserId(loginUser.getUserId());
+            this.currentUser.setUsername(loginUser.getUsername());
+        }
+
+        setTitle("AI Resume Builder" + (existingResume != null ? " - Editing #" + existingResume.getResumeId() : " - New"));
         setSize(700, 850);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLocationRelativeTo(null);
 
         JPanel mainPanel = new JPanel();
@@ -62,7 +87,7 @@ public class ResumeBuilder extends JFrame {
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         int row = 0;
-        gbc.gridx = 0; gbc.gridy = row; basicPanel.add(new JLabel("Resume Title:"), gbc);
+        gbc.gridx = 0; gbc.gridy = row; basicPanel.add(new JLabel("Resume Title *:"), gbc);
         gbc.gridx = 1; resumeTitleField = new JTextField(25);
         resumeTitleField.setToolTipText("e.g., Java Developer Resume");
         basicPanel.add(resumeTitleField, gbc);
@@ -157,7 +182,20 @@ public class ResumeBuilder extends JFrame {
         mainScrollPane.getVerticalScrollBar().setUnitIncrement(16);
         add(mainScrollPane);
 
+        if (existingResume != null) {
+            prefillForm(existingResume);
+        }
+
         setVisible(true);
+    }
+
+    private static LoginUser convertToLoginUser(User user) {
+        if (user == null) return null;
+        LoginUser lu = new LoginUser();
+        lu.setUserId(user.getUserId());
+        lu.setUsername(user.getName() != null ? user.getName() : "user");
+        lu.setEmail(user.getEmail());
+        return lu;
     }
 
     private JPanel createSectionHeader(String title, java.awt.event.ActionListener addAction) {
@@ -184,44 +222,148 @@ public class ResumeBuilder extends JFrame {
     // Dynamic Card Management Helpers
     // =========================================================================
 
-    private void addEducationCard() {
+    private EducationCard addEducationCard() {
         EducationCard card = new EducationCard();
         educationCards.add(card);
         educationContainer.add(card.getPanel());
         refreshContainer(educationContainer);
+        return card;
     }
 
-    private void addSkillRow() {
+    private SkillRow addSkillRow() {
         SkillRow row = new SkillRow();
         skillRows.add(row);
         skillContainer.add(row.getPanel());
         refreshContainer(skillContainer);
+        return row;
     }
 
-    private void addExperienceCard() {
+    private ExperienceCard addExperienceCard() {
         ExperienceCard card = new ExperienceCard();
         experienceCards.add(card);
         experienceContainer.add(card.getPanel());
         refreshContainer(experienceContainer);
+        return card;
     }
 
-    private void addProjectCard() {
+    private ProjectCard addProjectCard() {
         ProjectCard card = new ProjectCard();
         projectCards.add(card);
         projectContainer.add(card.getPanel());
         refreshContainer(projectContainer);
+        return card;
     }
 
-    private void addCertificationCard() {
+    private CertificationCard addCertificationCard() {
         CertificationCard card = new CertificationCard();
         certificationCards.add(card);
         certificationContainer.add(card.getPanel());
         refreshContainer(certificationContainer);
+        return card;
     }
 
     private void refreshContainer(JPanel container) {
         container.revalidate();
         container.repaint();
+    }
+
+    // =========================================================================
+    // Prefill Form for Editing Existing Resume
+    // =========================================================================
+
+    public void prefillForm(Resume resume) {
+        if (resume == null) return;
+        this.editingResume = resume;
+
+        if (resume.getTitle() != null) resumeTitleField.setText(resume.getTitle());
+        if (resume.getObjective() != null) objectiveArea.setText(resume.getObjective());
+        if (resume.getResumeType() != null) {
+            isExperienced.setSelected(resume.getResumeType() == ResumeType.EXPERIENCED);
+        }
+        if (resume.getTemplateType() != null) {
+            selectedTemplateType = resume.getTemplateType();
+            if (selectedTemplateType == TemplateType.MODERN) templateComboBox.setSelectedItem("Modern");
+            else if (selectedTemplateType == TemplateType.MINIMAL) templateComboBox.setSelectedItem("Minimal");
+            else templateComboBox.setSelectedItem("Classic");
+        }
+
+        if (resume.getUser() != null) {
+            if (resume.getUser().getName() != null) nameField.setText(resume.getUser().getName());
+            if (resume.getUser().getEmail() != null) emailField.setText(resume.getUser().getEmail());
+            if (resume.getUser().getPhone() != null) phoneField.setText(resume.getUser().getPhone());
+        }
+
+        // Clear containers
+        educationCards.clear(); educationContainer.removeAll();
+        skillRows.clear(); skillContainer.removeAll();
+        experienceCards.clear(); experienceContainer.removeAll();
+        projectCards.clear(); projectContainer.removeAll();
+        certificationCards.clear(); certificationContainer.removeAll();
+
+        // Populate Education
+        if (resume.getEducationList() != null) {
+            for (Education edu : resume.getEducationList()) {
+                EducationCard card = addEducationCard();
+                card.setInstitution(edu.getInstitution());
+                card.setDegree(edu.getDegree());
+                card.setFieldOfStudy(edu.getFieldOfStudy());
+                card.setStartYear(edu.getStartYear());
+                card.setEndYear(edu.getEndYear());
+                card.setCurrentlyStudying(edu.getEndYear() == null);
+                card.setGrade(edu.getGrade());
+            }
+        }
+
+        // Populate Skills
+        if (resume.getSkillList() != null) {
+            for (Skill skill : resume.getSkillList()) {
+                SkillRow row = addSkillRow();
+                row.setSkillName(skill.getSkillName());
+                row.setProficiencyLevel(skill.getProficiencyLevel());
+            }
+        }
+
+        // Populate Experience
+        if (resume.getExperienceList() != null) {
+            for (Experience exp : resume.getExperienceList()) {
+                ExperienceCard card = addExperienceCard();
+                card.setCompany(exp.getCompanyName());
+                card.setJobTitle(exp.getJobTitle());
+                card.setLocation(exp.getLocation());
+                if (exp.getStartDate() != null) card.setStartDateStr(exp.getStartDate().toString());
+                if (exp.getEndDate() != null) card.setEndDateStr(exp.getEndDate().toString());
+                card.setCurrentlyWorking(exp.getEndDate() == null);
+                card.setDescription(exp.getDescription());
+            }
+        }
+
+        // Populate Projects
+        if (resume.getProjectList() != null) {
+            for (Project proj : resume.getProjectList()) {
+                ProjectCard card = addProjectCard();
+                card.setProjectName(proj.getProjectName());
+                card.setDescription(proj.getDescription());
+                card.setTechStack(proj.getTechStack());
+                card.setProjectUrl(proj.getProjectUrl());
+            }
+        }
+
+        // Populate Certifications
+        if (resume.getCertificationList() != null) {
+            for (Certification cert : resume.getCertificationList()) {
+                CertificationCard card = addCertificationCard();
+                card.setCertName(cert.getCertificationName());
+                card.setIssuingOrg(cert.getIssuingOrg());
+                if (cert.getIssueDate() != null) card.setIssueDateStr(cert.getIssueDate().toString());
+                card.setCredentialUrl(cert.getCredentialUrl());
+            }
+        }
+
+        refreshContainer(educationContainer);
+        refreshContainer(skillContainer);
+        refreshContainer(experienceContainer);
+        refreshContainer(projectContainer);
+        refreshContainer(certificationContainer);
     }
 
     // =========================================================================
@@ -265,22 +407,35 @@ public class ResumeBuilder extends JFrame {
         com.resumegenerator.model.Resume resume = buildResumeFromForm();
         resume.setTitle(resumeTitle);
 
+        if (editingResume != null && editingResume.getResumeId() > 0) {
+            resume.setResumeId(editingResume.getResumeId());
+        }
+
         try {
-            UserDAO userDAO = new UserDAO();
-            if (currentUser != null && currentUser.getUserId() > 0) {
-                resume.setUserId(currentUser.getUserId());
-                int generatedResumeId = userDAO.saveResume(resume);
+            ResumeService resumeService = new ResumeService();
+            int ownerUserId = (currentLoginUser != null && currentLoginUser.getUserId() > 0)
+                    ? currentLoginUser.getUserId()
+                    : ((currentUser != null && currentUser.getUserId() > 0) ? currentUser.getUserId() : 0);
+
+            if (ownerUserId > 0) {
+                resume.setUserId(ownerUserId);
+                int generatedResumeId = resumeService.saveResume(resume);
+                resume.setResumeId(generatedResumeId);
+                this.editingResume = resume;
 
                 JOptionPane.showMessageDialog(
                         this,
-                        "Resume saved successfully!\nTitle: " + resumeTitle + "\nUser ID: " + currentUser.getUserId() + "\nResume ID: " + generatedResumeId,
+                        "Resume saved successfully!\nTitle: " + resumeTitle + "\nUser ID: " + ownerUserId + "\nResume ID: " + generatedResumeId,
                         "Success",
                         JOptionPane.INFORMATION_MESSAGE
                 );
             } else {
+                UserDAO userDAO = new UserDAO();
                 int generatedUserId = userDAO.save(resume.getUser());
                 resume.setUserId(generatedUserId);
-                int generatedResumeId = userDAO.saveResume(resume);
+                int generatedResumeId = resumeService.saveResume(resume);
+                resume.setResumeId(generatedResumeId);
+                this.editingResume = resume;
 
                 JOptionPane.showMessageDialog(
                         this,
@@ -289,7 +444,12 @@ public class ResumeBuilder extends JFrame {
                         JOptionPane.INFORMATION_MESSAGE
                 );
             }
-        } catch (SQLException ex) {
+
+            if (onSaveCallback != null) {
+                onSaveCallback.run();
+            }
+
+        } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Failed to save resume: " + ex.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
             ex.printStackTrace();
         }
@@ -300,20 +460,28 @@ public class ResumeBuilder extends JFrame {
     // =========================================================================
 
     private boolean validateInput() {
-        String name = nameField.getText().trim();
-        String email = emailField.getText().trim();
-        String phone = phoneField.getText().trim();
-
-        if (name.isEmpty()) {
-            showError("Name cannot be empty!");
+        if (resumeTitleField.getText().trim().isEmpty()) {
+            showError("Resume Title is required! Please enter a title (e.g., Java Developer Resume).");
             return false;
         }
-        if (!isValidEmail(email)) {
-            showError("Invalid email format! (e.g. user@example.com)");
+        if (nameField.getText().trim().isEmpty()) {
+            showError("Full Name is required!");
             return false;
         }
-        if (!isValidPhone(phone)) {
-            showError("Invalid phone number! Must be 10-15 digits.");
+        if (emailField.getText().trim().isEmpty()) {
+            showError("Email is required!");
+            return false;
+        }
+        if (!isValidEmail(emailField.getText().trim())) {
+            showError("Invalid Email format (e.g. user@example.com)!");
+            return false;
+        }
+        if (phoneField.getText().trim().isEmpty()) {
+            showError("Phone number is required!");
+            return false;
+        }
+        if (!isValidPhone(phoneField.getText().trim())) {
+            showError("Phone number must contain 10-15 digits!");
             return false;
         }
 
@@ -334,18 +502,15 @@ public class ResumeBuilder extends JFrame {
                 return false;
             }
             try {
-                int startYear = Integer.parseInt(card.getStartYearStr());
-                if (startYear < 1950 || startYear > 2100) throw new NumberFormatException();
-            } catch (NumberFormatException ex) {
-                showError("Education #" + cardNum + ": Invalid Start Year (e.g. 2020)!");
+                Integer.parseInt(card.getStartYearStr());
+            } catch (NumberFormatException e) {
+                showError("Education #" + cardNum + ": Start Year must be a valid 4-digit integer (e.g. 2020)!");
                 return false;
             }
-
             if (!card.isCurrentlyStudying() && !card.getEndYearStr().isEmpty()) {
                 try {
-                    int endYear = Integer.parseInt(card.getEndYearStr());
-                    if (endYear < 1950 || endYear > 2100) throw new NumberFormatException();
-                } catch (NumberFormatException ex) {
+                    Integer.parseInt(card.getEndYearStr());
+                } catch (NumberFormatException e) {
                     showError("Education #" + cardNum + ": Invalid End Year (e.g. 2024)!");
                     return false;
                 }
@@ -440,9 +605,15 @@ public class ResumeBuilder extends JFrame {
                 emailField.getText().trim(),
                 phoneField.getText().trim()
         );
-        if (currentUser != null && currentUser.getUserId() > 0) {
-            userObj.setUserId(currentUser.getUserId());
-            userObj.setUsername(currentUser.getUsername());
+        int ownerUserId = (currentLoginUser != null && currentLoginUser.getUserId() > 0)
+                ? currentLoginUser.getUserId()
+                : ((currentUser != null && currentUser.getUserId() > 0) ? currentUser.getUserId() : 0);
+
+        if (ownerUserId > 0) {
+            userObj.setUserId(ownerUserId);
+            if (currentLoginUser != null) {
+                userObj.setUsername(currentLoginUser.getUsername());
+            }
         }
 
         com.resumegenerator.model.Resume resume = new com.resumegenerator.model.Resume();
@@ -452,6 +623,10 @@ public class ResumeBuilder extends JFrame {
         resume.setResumeType(isExperienced.isSelected() ? ResumeType.EXPERIENCED : ResumeType.FRESHER);
         resume.setObjective(objectiveArea.getText().trim());
         resume.setTemplateType(selectedTemplateType);
+
+        if (editingResume != null && editingResume.getResumeId() > 0) {
+            resume.setResumeId(editingResume.getResumeId());
+        }
 
         // Map Education Cards
         for (int i = 0; i < educationCards.size(); i++) {
@@ -556,7 +731,7 @@ public class ResumeBuilder extends JFrame {
     }
 
     // =========================================================================
-    // Inner Card UI Classes with Move Up / Move Down / Remove Actions
+    // Inner Card UI Classes
     // =========================================================================
 
     private class EducationCard {
@@ -612,6 +787,17 @@ public class ResumeBuilder extends JFrame {
         public String getEndYearStr() { return endYearF.getText().trim(); }
         public boolean isCurrentlyStudying() { return currentlyStudyingCB.isSelected(); }
         public String getGrade() { return gradeF.getText().trim(); }
+
+        public void setInstitution(String s) { institutionF.setText(s != null ? s : ""); }
+        public void setDegree(String s) { degreeF.setText(s != null ? s : ""); }
+        public void setFieldOfStudy(String s) { fieldF.setText(s != null ? s : ""); }
+        public void setStartYear(int yr) { startYearF.setText(yr > 0 ? String.valueOf(yr) : ""); }
+        public void setEndYear(Integer yr) { endYearF.setText(yr != null ? String.valueOf(yr) : ""); }
+        public void setCurrentlyStudying(boolean b) {
+            currentlyStudyingCB.setSelected(b);
+            endYearF.setEnabled(!b);
+        }
+        public void setGrade(String s) { gradeF.setText(s != null ? s : ""); }
     }
 
     private class SkillRow {
@@ -638,7 +824,16 @@ public class ResumeBuilder extends JFrame {
             if (idx == 2) return ProficiencyLevel.INTERMEDIATE;
             if (idx == 3) return ProficiencyLevel.ADVANCED;
             if (idx == 4) return ProficiencyLevel.EXPERT;
-            return null; // Index 0 ("Select proficiency...")
+            return null;
+        }
+
+        public void setSkillName(String s) { skillF.setText(s != null ? s : ""); }
+        public void setProficiencyLevel(ProficiencyLevel level) {
+            if (level == ProficiencyLevel.BEGINNER) levelCombo.setSelectedIndex(1);
+            else if (level == ProficiencyLevel.INTERMEDIATE) levelCombo.setSelectedIndex(2);
+            else if (level == ProficiencyLevel.ADVANCED) levelCombo.setSelectedIndex(3);
+            else if (level == ProficiencyLevel.EXPERT) levelCombo.setSelectedIndex(4);
+            else levelCombo.setSelectedIndex(0);
         }
     }
 
@@ -699,6 +894,17 @@ public class ResumeBuilder extends JFrame {
         public String getEndDateStr() { return endDateF.getText().trim(); }
         public boolean isCurrentlyWorking() { return currentlyWorkingCB.isSelected(); }
         public String getDescription() { return descriptionA.getText().trim(); }
+
+        public void setCompany(String s) { companyF.setText(s != null ? s : ""); }
+        public void setJobTitle(String s) { titleF.setText(s != null ? s : ""); }
+        public void setLocation(String s) { locationF.setText(s != null ? s : ""); }
+        public void setStartDateStr(String s) { startDateF.setText(s != null ? s : ""); }
+        public void setEndDateStr(String s) { endDateF.setText(s != null ? s : ""); }
+        public void setCurrentlyWorking(boolean b) {
+            currentlyWorkingCB.setSelected(b);
+            endDateF.setEnabled(!b);
+        }
+        public void setDescription(String s) { descriptionA.setText(s != null ? s : ""); }
     }
 
     private class ProjectCard {
@@ -740,6 +946,11 @@ public class ResumeBuilder extends JFrame {
         public String getTechStack() { return techF.getText().trim(); }
         public String getProjectUrl() { return urlF.getText().trim(); }
         public String getDescription() { return descA.getText().trim(); }
+
+        public void setProjectName(String s) { nameF.setText(s != null ? s : ""); }
+        public void setTechStack(String s) { techF.setText(s != null ? s : ""); }
+        public void setProjectUrl(String s) { urlF.setText(s != null ? s : ""); }
+        public void setDescription(String s) { descA.setText(s != null ? s : ""); }
     }
 
     private class CertificationCard {
@@ -777,6 +988,11 @@ public class ResumeBuilder extends JFrame {
         public String getIssuingOrg() { return orgF.getText().trim(); }
         public String getIssueDateStr() { return dateF.getText().trim(); }
         public String getCredentialUrl() { return urlF.getText().trim(); }
+
+        public void setCertName(String s) { nameF.setText(s != null ? s : ""); }
+        public void setIssuingOrg(String s) { orgF.setText(s != null ? s : ""); }
+        public void setIssueDateStr(String s) { dateF.setText(s != null ? s : ""); }
+        public void setCredentialUrl(String s) { urlF.setText(s != null ? s : ""); }
     }
 
     // Helper to generate Move Up / Move Down / Remove buttons for any card/row object
